@@ -114,6 +114,36 @@ async function syncInvoicePaidAmount(invoice_number, conn) {
   return totalPaid;
 }
 
+// Centralized checkout function within a transaction
+async function executeCheckoutInTransaction(conn, bookingId, checkoutTime, destinationRoomStatus, userEmail) {
+  // 1. Get booking details
+  const [bookingRows] = await conn.query('SELECT room_id, invoice_number, status FROM bookings WHERE id = ? FOR UPDATE', [bookingId]);
+  if (bookingRows.length === 0) throw new Error('Booking not found');
+  const booking = bookingRows[0];
+  
+  if (booking.status === 'checked_out') {
+    return booking; // Already checked out, skip
+  }
+
+  // 2. Update booking status
+  await conn.query("UPDATE bookings SET status = 'checked_out', check_out = ? WHERE id = ?", [checkoutTime, bookingId]);
+
+  // 3. Update invoice checkout timestamp
+  await conn.query('UPDATE invoices SET checked_out_at = ? WHERE invoice_number = ?', [checkoutTime, booking.invoice_number]);
+
+  // 4. Update room status to destinationRoomStatus
+  await conn.query("UPDATE rooms SET status = ? WHERE id = ?", [destinationRoomStatus, booking.room_id]);
+
+  // 5. Log activity (Only one event logged)
+  const timestamp = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+  await conn.query(
+    'INSERT INTO activity_logs (email, action, details, timestamp) VALUES (?, ?, ?, ?)',
+    [userEmail || 'system', 'Checkout', `Checked out Invoice ${booking.invoice_number}. Room → ${destinationRoomStatus}.`, timestamp]
+  );
+
+  return booking;
+}
+
 // ==========================================
 // AUTHENTICATION ROUTES
 // ==========================================
@@ -299,15 +329,47 @@ router.delete('/rooms/:id', authenticateToken, async (req, res) => {
 router.put('/rooms/:id/status', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
+  
+  const conn = await pool.getConnection();
   try {
-    const [room] = await pool.query('SELECT room_number FROM rooms WHERE id = ?', [id]);
-    if (room.length === 0) return res.status(404).json({ message: 'Room not found' });
-    await pool.query('UPDATE rooms SET status = ? WHERE id = ?', [status, id]);
-    await logActivity(req.user.email, 'Room Changes', `Changed room ${room[0].room_number} status to ${status}`);
+    await conn.beginTransaction();
+
+    // Get current room status
+    const [roomRow] = await conn.query('SELECT room_number, status FROM rooms WHERE id = ? FOR UPDATE', [id]);
+    if (roomRow.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ message: 'Room not found' });
+    }
+    const currentRoom = roomRow[0];
+
+    // If changing from Occupied to a non-Occupied status, trigger checkout!
+    if (currentRoom.status === 'Occupied' && status !== 'Occupied') {
+      const [bookingRow] = await conn.query(
+        "SELECT id FROM bookings WHERE room_id = ? AND status = 'active' FOR UPDATE",
+        [id]
+      );
+      if (bookingRow.length > 0) {
+        const bookingId = bookingRow[0].id;
+        const checkoutTime = new Date().toLocaleString('en-IN', {
+          timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric',
+          hour: '2-digit', minute: '2-digit', hour12: true
+        }).replace(/,/g, '');
+
+        await executeCheckoutInTransaction(conn, bookingId, checkoutTime, status, req.user.email);
+      }
+    }
+
+    await conn.query('UPDATE rooms SET status = ? WHERE id = ?', [status, id]);
+    await conn.commit();
+
+    await logActivity(req.user.email, 'Room Changes', `Changed room ${currentRoom.room_number} status to ${status}`);
     res.json({ message: 'Room status updated' });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
+    await conn.rollback();
+    console.error('Room status update failed:', err);
+    res.status(500).json({ message: 'Server error: ' + err.message });
+  } finally {
+    conn.release();
   }
 });
 
@@ -650,21 +712,22 @@ router.post('/bookings/:id/checkout', authenticateToken, async (req, res) => {
     hour: '2-digit', minute: '2-digit', hour12: true
   }).replace(/,/g, '');
 
+  const conn = await pool.getConnection();
   try {
-    const [bookingRow] = await pool.query('SELECT room_id, invoice_number, status FROM bookings WHERE id = ?', [id]);
-    if (bookingRow.length === 0) return res.status(404).json({ message: 'Booking not found' });
-    const booking = bookingRow[0];
-    if (booking.status === 'checked_out') return res.status(400).json({ message: 'Booking already checked out.' });
+    await conn.beginTransaction();
 
-    await pool.query("UPDATE bookings SET status = 'checked_out', check_out = ? WHERE id = ?", [checkoutTime, id]);
-    await pool.query('UPDATE invoices SET checked_out_at = ? WHERE invoice_number = ?', [checkoutTime, booking.invoice_number]);
-    await pool.query("UPDATE rooms SET status = 'Cleaning' WHERE id = ?", [booking.room_id]);
+    // Note: Room status becomes 'Available' when checked out from the invoice/bookings page
+    // as requested: "Room status must become Available"
+    const booking = await executeCheckoutInTransaction(conn, id, checkoutTime, 'Available', req.user.email);
 
-    await logActivity(req.user.email, 'Checkout', `Checked out Invoice ${booking.invoice_number}. Room → Cleaning.`);
-    res.json({ message: 'Checkout successful' });
+    await conn.commit();
+    res.json({ message: 'Checkout successful', bookingId: id, invoiceNumber: booking.invoice_number });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
+    await conn.rollback();
+    console.error('Checkout failed:', err);
+    res.status(500).json({ message: 'Server error: ' + err.message });
+  } finally {
+    conn.release();
   }
 });
 
