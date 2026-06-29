@@ -72,6 +72,7 @@ export default function InvoiceDetail({ invoiceNumber, onBackToList }: InvoiceDe
       setExtraCharges(res.items.map((i: any) => ({ description: i.description, amount: parseFloat(i.amount).toString() })));
       setPayments(res.payments);
       setPaidAmountInput('');
+      setPaymentMethod(res.invoice.payment_method || 'UPI');
     } catch (err) { console.error(err); alert('Failed to load invoice'); }
     finally { setLoading(false); }
   };
@@ -132,6 +133,7 @@ export default function InvoiceDetail({ invoiceNumber, onBackToList }: InvoiceDe
         room_charges: parseFloat(roomCharges),
         gst_rate: parseFloat(gstRate),
         extra_charges: extraCharges.map(c => ({ description: c.description, amount: parseFloat(c.amount) })),
+        payment_method: paymentMethod
       };
       if (newPayment && newPayment.amount > 0) {
         body.new_payment = { amount: newPayment.amount, method: newPayment.method };
@@ -169,6 +171,17 @@ export default function InvoiceDetail({ invoiceNumber, onBackToList }: InvoiceDe
             gst_rate: parseFloat(gstRate),
             extra_charges: extraCharges.map(c => ({ description: c.description, amount: parseFloat(c.amount) })),
             new_payment: { amount: parseFloat(payment.amount), method: payment.method },
+            payment_method: payment.method
+          })
+        });
+      } else {
+        await apiFetch(`/invoices/${invoiceNumber}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            room_charges: parseFloat(roomCharges),
+            gst_rate: parseFloat(gstRate),
+            extra_charges: extraCharges.map(c => ({ description: c.description, amount: parseFloat(c.amount) })),
+            payment_method: paymentMethod
           })
         });
       }
@@ -487,10 +500,15 @@ export default function InvoiceDetail({ invoiceNumber, onBackToList }: InvoiceDe
               <h3 className="text-sm font-black uppercase text-gray-700 tracking-wider">Tax Invoice</h3>
               <p className="text-xs font-extrabold text-gray-800 mt-1">{invoiceNumber}</p>
               <p className="text-[10px] text-gray-400 font-semibold mt-0.5">{invoice.created_at}</p>
-              <span className={`inline-block mt-1.5 text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
-                invoice.status === 'paid' ? 'bg-emerald-100 text-emerald-700' :
-                invoice.status === 'partial' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
-              }`}>{invoice.status}</span>
+              <div className="flex flex-col items-end gap-1 mt-1.5">
+                <span className={`inline-block text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
+                  invoice.status === 'paid' ? 'bg-emerald-100 text-emerald-700' :
+                  invoice.status === 'partial' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                }`}>{invoice.status}</span>
+                <span className="text-[9px] font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full uppercase">
+                  {invoice.payment_method}
+                </span>
+              </div>
             </div>
           </div>
 

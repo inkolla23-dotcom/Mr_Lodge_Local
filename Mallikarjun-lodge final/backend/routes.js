@@ -461,8 +461,14 @@ router.post('/bookings/check-in', authenticateToken, checkinUpload, async (req, 
 
     const currentYear = new Date().getFullYear().toString().slice(-2);
     const [invoiceSeqRow] = await pool.query('SELECT COUNT(*) as count FROM invoices');
-    const invoiceSeq = (invoiceSeqRow[0].count + 10001).toString();
-    const invoiceNumber = `MR-${currentYear}-${invoiceSeq}`;
+    let seq = invoiceSeqRow[0].count + 10001;
+    let invoiceNumber = `MR-${currentYear}-${seq}`;
+    while (true) {
+      const [existingInv] = await pool.query('SELECT id FROM invoices WHERE invoice_number = ?', [invoiceNumber]);
+      if (existingInv.length === 0) break;
+      seq++;
+      invoiceNumber = `MR-${currentYear}-${seq}`;
+    }
 
     const [bookingInsert] = await pool.query(
       `INSERT INTO bookings (room_id,customer_id,check_in,stay_duration,num_persons,purpose,arriving_from,mode_of_travel,remarks,num_gents,num_ladies,num_children,status,invoice_number)
@@ -647,17 +653,25 @@ router.get('/invoices/:invoice_number', async (req, res) => {
 // Only sends a single new_payment transaction when owner adds money.
 router.put('/invoices/:invoice_number', authenticateToken, async (req, res) => {
   const { invoice_number } = req.params;
-  const { room_charges, gst_rate, extra_charges, new_payment } = req.body;
+  const { room_charges, gst_rate, extra_charges, new_payment, payment_method } = req.body;
 
   try {
     const [invRow] = await pool.query('SELECT booking_id FROM invoices WHERE invoice_number = ?', [invoice_number]);
     if (invRow.length === 0) return res.status(404).json({ message: 'Invoice not found' });
 
-    // 1. Update room charges and GST on invoice
-    await pool.query(
-      'UPDATE invoices SET room_charges = ?, gst_rate = ? WHERE invoice_number = ?',
-      [room_charges, gst_rate, invoice_number]
-    );
+    const activePaymentMethod = payment_method || (new_payment ? new_payment.method : null);
+
+    // 1. Update room charges, GST, and payment method on invoice
+    const updateFields = [room_charges, gst_rate];
+    let updateQuery = 'UPDATE invoices SET room_charges = ?, gst_rate = ?';
+    if (activePaymentMethod) {
+      updateQuery += ', payment_method = ?';
+      updateFields.push(activePaymentMethod);
+    }
+    updateQuery += ' WHERE invoice_number = ?';
+    updateFields.push(invoice_number);
+
+    await pool.query(updateQuery, updateFields);
 
     // 2. Replace extra charges
     await pool.query('DELETE FROM invoice_items WHERE invoice_number = ?', [invoice_number]);
