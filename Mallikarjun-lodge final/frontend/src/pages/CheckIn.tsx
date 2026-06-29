@@ -157,7 +157,7 @@ function FileUploadZone({
 }: {
   label: string;
   onFile: (f: File) => void;
-  inputRef: React.RefObject<HTMLInputElement>;
+  inputRef: React.RefObject<HTMLInputElement | null>;
 }) {
   return (
     <div>
