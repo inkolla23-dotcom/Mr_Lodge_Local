@@ -126,7 +126,7 @@ router.post('/auth/register', async (req, res) => {
     if (existing.length > 0) return res.status(400).json({ message: 'Email already registered' });
     const hashedPassword = await bcrypt.hash(password, 10);
     await pool.query(
-      'INSERT INTO users (email, password, name, role, status) VALUES (?, ?, ?, "Staff", "pending")',
+      "INSERT INTO users (email, password, name, role, status) VALUES (?, ?, ?, 'Staff', 'pending')",
       [email, hashedPassword, name]
     );
     await logActivity('system', 'User Access Changes', `New user registration request: ${email} (${name})`);
@@ -464,7 +464,7 @@ router.post('/bookings/check-in', authenticateToken, checkinUpload, async (req, 
     );
 
     // 7. Update Room Status
-    await pool.query('UPDATE rooms SET status = "Occupied" WHERE id = ?', [room_id]);
+    await pool.query("UPDATE rooms SET status = 'Occupied' WHERE id = ?", [room_id]);
 
     await logActivity(req.user.email, 'Check-In', `Check-in: ${name} → Room ${roomRow[0].room_number}. Invoice: ${invoiceNumber}`);
     res.json({ message: 'Check-in successful', bookingId, invoiceNumber });
@@ -656,9 +656,9 @@ router.post('/bookings/:id/checkout', authenticateToken, async (req, res) => {
     const booking = bookingRow[0];
     if (booking.status === 'checked_out') return res.status(400).json({ message: 'Booking already checked out.' });
 
-    await pool.query('UPDATE bookings SET status = "checked_out", check_out = ? WHERE id = ?', [checkoutTime, id]);
+    await pool.query("UPDATE bookings SET status = 'checked_out', check_out = ? WHERE id = ?", [checkoutTime, id]);
     await pool.query('UPDATE invoices SET checked_out_at = ? WHERE invoice_number = ?', [checkoutTime, booking.invoice_number]);
-    await pool.query('UPDATE rooms SET status = "Cleaning" WHERE id = ?', [booking.room_id]);
+    await pool.query("UPDATE rooms SET status = 'Cleaning' WHERE id = ?", [booking.room_id]);
 
     await logActivity(req.user.email, 'Checkout', `Checked out Invoice ${booking.invoice_number}. Room → Cleaning.`);
     res.json({ message: 'Checkout successful' });
@@ -854,7 +854,7 @@ router.post('/data-management/delete-records', authenticateToken, async (req, re
     if (idsToDelete.length > 0) {
       for (const invNum of invoicesToDelete) await pool.query('DELETE FROM invoices WHERE invoice_number = ?', [invNum]);
       for (const bid of idsToDelete) await pool.query('DELETE FROM bookings WHERE id = ?', [bid]);
-      await pool.query('UPDATE rooms SET status = "Available"');
+      await pool.query("UPDATE rooms SET status = 'Available'");
     }
 
     await logActivity(req.user.email, 'Data Deletions', `Deleted ${idsToDelete.length} bookings between ${fromDate} and ${toDate}`);
