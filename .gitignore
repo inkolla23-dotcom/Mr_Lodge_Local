@@ -6,3 +6,4 @@ dist/
 .vscode/
 .idea/
 Mallikarjun-lodge final/backend/uploads/
+*.zip
