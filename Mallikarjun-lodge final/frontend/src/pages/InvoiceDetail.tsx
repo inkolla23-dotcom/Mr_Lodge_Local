@@ -10,24 +10,35 @@ interface InvoiceDetailProps {
   onBackToList: () => void;
 }
 
-// ── PDF Download ─────────────────────────────────────────────────────────────
-async function downloadPDF(elementId: string, filename: string) {
+// ── PDF Generation Helpers ───────────────────────────────────────────────────
+async function generatePDFBlob(elementId: string): Promise<Blob | null> {
   const element = document.getElementById(elementId);
-  if (!element) { alert('Could not find printable area.'); return; }
+  if (!element) return null;
+  const { default: jsPDF } = await import('jspdf');
+  const { default: html2canvas } = await import('html2canvas');
+  const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false });
+  const imgData = canvas.toDataURL('image/png');
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pw = pdf.internal.pageSize.getWidth();
+  const ph = pdf.internal.pageSize.getHeight();
+  const ih = (canvas.height * pw) / canvas.width;
+  let left = ih; let pos = 0;
+  pdf.addImage(imgData, 'PNG', 0, pos, pw, ih);
+  left -= ph;
+  while (left > 0) { pos = left - ih; pdf.addPage(); pdf.addImage(imgData, 'PNG', 0, pos, pw, ih); left -= ph; }
+  return pdf.output('blob');
+}
+
+async function downloadPDF(elementId: string, filename: string) {
   try {
-    const { default: jsPDF } = await import('jspdf');
-    const { default: html2canvas } = await import('html2canvas');
-    const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false });
-    const imgData = canvas.toDataURL('image/png');
-    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    const pw = pdf.internal.pageSize.getWidth();
-    const ph = pdf.internal.pageSize.getHeight();
-    const ih = (canvas.height * pw) / canvas.width;
-    let left = ih; let pos = 0;
-    pdf.addImage(imgData, 'PNG', 0, pos, pw, ih);
-    left -= ph;
-    while (left > 0) { pos = left - ih; pdf.addPage(); pdf.addImage(imgData, 'PNG', 0, pos, pw, ih); left -= ph; }
-    pdf.save(filename);
+    const blob = await generatePDFBlob(elementId);
+    if (!blob) { alert('Could not find printable area.'); return; }
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
   } catch (err) {
     console.error('PDF error:', err);
     alert('PDF download failed. Use Print instead.');
@@ -39,6 +50,12 @@ export default function InvoiceDetail({ invoiceNumber, onBackToList }: InvoiceDe
   const [saving, setSaving] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [data, setData] = useState<any | null>(null);
+
+  // WhatsApp states
+  const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
+  const [whatsAppPdfLoading, setWhatsAppPdfLoading] = useState(false);
+  const [whatsAppPdfBlob, setWhatsAppPdfBlob] = useState<Blob | null>(null);
+  const [printLoading, setPrintLoading] = useState(false);
 
   // Invoice editable fields
   const [roomCharges, setRoomCharges] = useState('');
@@ -201,7 +218,28 @@ export default function InvoiceDetail({ invoiceNumber, onBackToList }: InvoiceDe
 
   // ── PDF & Print ───────────────────────────────────────────────────────────
   const handleDownloadPDF = async () => { setPdfLoading(true); await downloadPDF('invoice-print-area', `Invoice-${invoiceNumber}.pdf`); setPdfLoading(false); };
-  const handlePrint = () => window.print();
+  const handlePrint = async () => {
+    setPrintLoading(true);
+    try {
+      const blob = await generatePDFBlob('invoice-physical-print-template');
+      if (!blob) {
+        throw new Error('Could not generate PDF invoice.');
+      }
+      const formData = new FormData();
+      formData.append('invoice', blob, `Invoice-${invoiceNumber}.pdf`);
+
+      await apiFetch('/invoices/print', {
+        method: 'POST',
+        body: formData,
+      });
+      alert('Invoice sent to printer successfully.');
+    } catch (err: any) {
+      console.error('Silent print failed:', err);
+      alert(`Silent printing failed: ${err.message || err}`);
+    } finally {
+      setPrintLoading(false);
+    }
+  };
 
   // ── Links ─────────────────────────────────────────────────────────────────
   // Public invoice link — no login required, opens /public/invoice/:number
@@ -209,28 +247,44 @@ export default function InvoiceDetail({ invoiceNumber, onBackToList }: InvoiceDe
   // Public feedback link — no login required, opens /public/feedback/:number
   const getFeedbackLink = () => `${PUBLIC_BASE_URL}/public/feedback/${invoiceNumber}`;
 
-  const handleWhatsApp = () => {
+  const handleWhatsApp = async () => {
     if (!data) return;
-    const invoiceUrl = getInvoiceLink();
-    const feedbackUrl = getFeedbackLink();
-    // WhatsApp detects URLs as clickable only when they appear on a dedicated line
-    // with no surrounding punctuation. Format accordingly:
-    // WhatsApp makes URLs clickable when they appear as plain text with no
-    // surrounding quotes, brackets, or punctuation. URL must be on its own
-    // line with only whitespace before/after it.
-    const msg = [
-      `Dear ${data.customer.name},`,
-      ``,
-      `Your invoice is ready.`,
-      ``,
-      `Invoice: ${invoiceUrl}`,
-      ``,
-      `Feedback: ${feedbackUrl}`,
-      ``,
-      `Thank you for staying with us.`,
-      `Mallikarjun (Ravi) Lodge`,
-    ].join('\n');
-    window.open(`https://api.whatsapp.com/send?phone=91${data.customer.mobile}&text=${encodeURIComponent(msg)}`, '_blank');
+    setWhatsAppPdfLoading(true);
+    try {
+      let blob = whatsAppPdfBlob;
+      if (!blob) {
+        blob = await generatePDFBlob('invoice-print-area');
+        if (blob) {
+          setWhatsAppPdfBlob(blob);
+        }
+      }
+      if (!blob) {
+        alert('Could not generate PDF invoice.');
+        setWhatsAppPdfLoading(false);
+        return;
+      }
+
+      const file = new File([blob], `Invoice-${invoiceNumber}.pdf`, { type: 'application/pdf' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: `Invoice ${invoiceNumber}`,
+            text: `Dear ${data.customer.name}, please find attached your invoice.`,
+          });
+          setWhatsAppPdfLoading(false);
+          return;
+        } catch (shareErr) {
+          console.log('Web Share cancelled or failed, showing helper modal:', shareErr);
+        }
+      }
+      setShowWhatsAppModal(true);
+    } catch (err) {
+      console.error('WhatsApp share error:', err);
+      setShowWhatsAppModal(true);
+    } finally {
+      setWhatsAppPdfLoading(false);
+    }
   };
 
   const handleCopyLink = () => { navigator.clipboard.writeText(getInvoiceLink()); alert('Public link copied to clipboard!'); };
@@ -243,6 +297,160 @@ export default function InvoiceDetail({ invoiceNumber, onBackToList }: InvoiceDe
 
   return (
     <div className="flex flex-col space-y-6 pb-12">
+
+      {/* ── WhatsApp Sharing Helper Modal ───────────────────────────────── */}
+      {showWhatsAppModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-emerald-50/50">
+              <div className="flex items-center gap-2">
+                <Share2 className="w-5 h-5 text-emerald-600" />
+                <h3 className="text-sm font-bold text-gray-800">Share Invoice via WhatsApp</h3>
+              </div>
+              <button 
+                onClick={() => setShowWhatsAppModal(false)} 
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            {/* Body */}
+            <div className="px-6 py-5 space-y-4">
+              <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 text-xs space-y-2 text-amber-800">
+                <div className="flex gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                  <div>
+                    <span className="font-bold">WhatsApp Security Restriction:</span>
+                    <p className="mt-1 text-amber-700 leading-relaxed font-semibold">
+                      WhatsApp Web/Link APIs do not support automated direct file attachments from external sites. Please choose one of the options below:
+                    </p>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="space-y-3">
+                {/* Option 1: Download & Open WhatsApp */}
+                <button
+                  onClick={async () => {
+                    if (whatsAppPdfBlob) {
+                      const url = URL.createObjectURL(whatsAppPdfBlob);
+                      const link = document.createElement('a');
+                      link.href = url;
+                      link.download = `Invoice-${invoiceNumber}.pdf`;
+                      link.click();
+                      URL.revokeObjectURL(url);
+                    } else {
+                      setPdfLoading(true);
+                      await downloadPDF('invoice-print-area', `Invoice-${invoiceNumber}.pdf`);
+                      setPdfLoading(false);
+                    }
+                    const msg = [
+                      `Dear ${data.customer.name},`,
+                      ``,
+                      `Please find attached the invoice PDF for your stay.`,
+                      ``,
+                      `Feedback link: ${getFeedbackLink()}`,
+                      ``,
+                      `Thank you for staying with us.`,
+                      `Mallikarjun (Ravi) Lodge`,
+                    ].join('\n');
+                    window.open(`https://api.whatsapp.com/send?phone=91${data.customer.mobile}&text=${encodeURIComponent(msg)}`, '_blank');
+                    setShowWhatsAppModal(false);
+                  }}
+                  className="w-full text-left p-3.5 border border-emerald-100 hover:border-emerald-300 bg-emerald-50/20 hover:bg-emerald-50/40 rounded-xl transition-all duration-200 group flex items-start gap-3"
+                >
+                  <div className="p-2 bg-emerald-100 rounded-lg text-emerald-700 group-hover:scale-105 transition-transform flex-shrink-0">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-gray-800">Download PDF & Open WhatsApp</div>
+                    <div className="text-[10px] text-gray-500 mt-0.5 leading-relaxed font-semibold">
+                      Downloads the high-quality PDF to your device, then opens WhatsApp so you can attach the document.
+                    </div>
+                  </div>
+                </button>
+
+                {/* Option 2: Send Link Only */}
+                <button
+                  onClick={() => {
+                    const invoiceUrl = getInvoiceLink();
+                    const feedbackUrl = getFeedbackLink();
+                    const msg = [
+                      `Dear ${data.customer.name},`,
+                      ``,
+                      `Your invoice is ready.`,
+                      ``,
+                      `Invoice Link: ${invoiceUrl}`,
+                      ``,
+                      `Feedback Link: ${feedbackUrl}`,
+                      ``,
+                      `Thank you for staying with us.`,
+                      `Mallikarjun (Ravi) Lodge`,
+                    ].join('\n');
+                    window.open(`https://api.whatsapp.com/send?phone=91${data.customer.mobile}&text=${encodeURIComponent(msg)}`, '_blank');
+                    setShowWhatsAppModal(false);
+                  }}
+                  className="w-full text-left p-3.5 border border-gray-100 hover:border-gray-300 bg-gray-50/50 hover:bg-gray-50 rounded-xl transition-all duration-200 group flex items-start gap-3"
+                >
+                  <div className="p-2 bg-gray-100 rounded-lg text-gray-700 group-hover:scale-105 transition-transform flex-shrink-0">
+                    <Link2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-gray-800">Send Invoice Link Only</div>
+                    <div className="text-[10px] text-gray-500 mt-0.5 leading-relaxed font-semibold">
+                      Sends the clickable link directly to the customer's WhatsApp as text message.
+                    </div>
+                  </div>
+                </button>
+
+                {/* Option 3: Native Share menu if available */}
+                {navigator.share && (
+                  <button
+                    onClick={async () => {
+                      if (whatsAppPdfBlob) {
+                        const file = new File([whatsAppPdfBlob], `Invoice-${invoiceNumber}.pdf`, { type: 'application/pdf' });
+                        try {
+                          await navigator.share({
+                            files: [file],
+                            title: `Invoice ${invoiceNumber}`,
+                            text: `Dear ${data.customer.name}, please find attached your invoice.`,
+                          });
+                          setShowWhatsAppModal(false);
+                        } catch (shareErr) {
+                          console.log('Native share failed/cancelled:', shareErr);
+                        }
+                      }
+                    }}
+                    className="w-full text-left p-3.5 border border-blue-100 hover:border-blue-300 bg-blue-50/20 hover:bg-blue-50/40 rounded-xl transition-all duration-200 group flex items-start gap-3"
+                  >
+                    <div className="p-2 bg-blue-100 rounded-lg text-blue-700 group-hover:scale-105 transition-transform flex-shrink-0">
+                      <Share2 className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-gray-800">Share PDF via Native Menu</div>
+                      <div className="text-[10px] text-gray-500 mt-0.5 leading-relaxed font-semibold">
+                        Uses your device's native sharing capabilities to send the PDF file.
+                      </div>
+                    </div>
+                  </button>
+                )}
+              </div>
+            </div>
+            
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-end bg-gray-50/50">
+              <button 
+                onClick={() => setShowWhatsAppModal(false)}
+                className="px-4 py-2 border border-gray-200 text-gray-600 rounded-lg text-xs font-bold hover:bg-gray-100 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Payment Confirmation Modal ───────────────────────────────────── */}
       {showPayConfirm && (
@@ -346,13 +554,13 @@ export default function InvoiceDetail({ invoiceNumber, onBackToList }: InvoiceDe
             className="flex items-center gap-1.5 px-4 py-2 border border-gray-200 bg-white rounded-lg text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-60">
             <FileText className="w-4 h-4" /> {pdfLoading ? 'Generating...' : 'Download PDF'}
           </button>
-          <button onClick={handlePrint}
-            className="flex items-center gap-1.5 px-4 py-2 border border-gray-200 bg-white rounded-lg text-xs font-bold text-gray-700 hover:bg-gray-50">
-            <Printer className="w-4 h-4" /> Print
+          <button onClick={handlePrint} disabled={printLoading}
+            className="flex items-center gap-1.5 px-4 py-2 border border-gray-200 bg-white rounded-lg text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-60">
+            <Printer className="w-4 h-4" /> {printLoading ? 'Printing...' : 'Print'}
           </button>
-          <button onClick={handleWhatsApp}
-            className="flex items-center gap-1.5 px-4 py-2 border border-gray-200 bg-white rounded-lg text-xs font-bold text-gray-700 hover:bg-gray-50">
-            <Share2 className="w-4 h-4 text-emerald-600" /> WhatsApp
+          <button onClick={handleWhatsApp} disabled={whatsAppPdfLoading}
+            className="flex items-center gap-1.5 px-4 py-2 border border-gray-200 bg-white rounded-lg text-xs font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-60">
+            <Share2 className="w-4 h-4 text-emerald-600" /> {whatsAppPdfLoading ? 'Preparing PDF...' : 'WhatsApp'}
           </button>
           <button onClick={handleCopyLink}
             className="flex items-center gap-1.5 px-4 py-2 border border-gray-200 bg-white rounded-lg text-xs font-bold text-gray-700 hover:bg-gray-50">
@@ -520,6 +728,12 @@ export default function InvoiceDetail({ invoiceNumber, onBackToList }: InvoiceDe
               <p className="font-bold text-gray-500 mt-1">{customer.mobile}</p>
               <p className="text-gray-500 mt-0.5 font-semibold">Nationality: {customer.nationality}</p>
               <p className="text-gray-500 mt-0.5 font-semibold">Aadhaar: {customer.aadhaar}</p>
+              {booking.company_name && booking.company_name.trim() !== '' && (
+                <p className="text-gray-500 mt-0.5 font-semibold">Company Name: {booking.company_name}</p>
+              )}
+              {booking.company_gst && booking.company_gst.trim() !== '' && (
+                <p className="text-gray-500 mt-0.5 font-semibold">GST Number: {booking.company_gst}</p>
+              )}
             </div>
             <div className="text-right">
               <h4 className="font-extrabold text-gray-400 uppercase tracking-wider text-[9px] mb-2">Stay Details</h4>
@@ -587,6 +801,111 @@ export default function InvoiceDetail({ invoiceNumber, onBackToList }: InvoiceDe
               <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest mt-1">Scan to review</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Hidden Print Template - Used ONLY for physical automatic printing */}
+      <div style={{ position: 'absolute', top: '-9999px', left: '-9999px', width: '800px', zIndex: -100, pointerEvents: 'none' }}>
+        <div id="invoice-physical-print-template" style={{ width: '800px', padding: '30px 40px', background: 'white', color: '#000000', fontFamily: 'system-ui, sans-serif', boxSizing: 'border-box' }}>
+          {/* Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '3px solid #000000', paddingBottom: '12px', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div style={{ width: '56px', height: '56px', borderRadius: '50%', border: '2px solid #000000', padding: '2px', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <img src="/logo.png" alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: '20px', fontWeight: 700, margin: 0, color: '#000000' }}>Mallikarjun (Ravi) Lodge</h2>
+                <p style={{ fontSize: '11px', color: '#000000', fontWeight: 600, margin: '4px 0 0 0', lineHeight: 1.3 }}>4-8-495/1, Gowliguda, Ram Mandir Road, Near MGBS, Hyderabad - 500012</p>
+                <p style={{ fontSize: '11px', color: '#000000', fontWeight: 600, margin: '2px 0 0 0' }}>Phone: 6300 100 426 &nbsp;|&nbsp; GST: 36EJUPR1626A1Z2</p>
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <h3 style={{ fontSize: '13px', fontWeight: 700, textTransform: 'uppercase', color: '#000000', letterSpacing: '0.05em', margin: 0 }}>Tax Invoice</h3>
+              <p style={{ fontSize: '12px', fontWeight: 700, color: '#000000', margin: '3px 0 0 0' }}>{invoiceNumber}</p>
+              <p style={{ fontSize: '10px', color: '#000000', fontWeight: 600, margin: '2px 0 0 0' }}>{invoice.created_at}</p>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'end', gap: '3px', marginTop: '6px' }}>
+                <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', padding: '2px 8px', border: '1.5px solid #000000', borderRadius: '4px', background: 'white', color: '#000000' }}>{invoice.status}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Details (Guest + Stay) */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', borderBottom: '2px solid #000000', paddingBottom: '12px', marginBottom: '16px', fontSize: '12px' }}>
+            <div>
+              <h4 style={{ fontWeight: 700, color: '#000000', textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '9px', margin: '0 0 4px 0' }}>Guest Details</h4>
+              <p style={{ fontWeight: 700, color: '#000000', fontSize: '13px', margin: 0 }}>{customer.name}</p>
+              <p style={{ fontWeight: 600, color: '#000000', margin: '2px 0 0 0' }}>{customer.mobile}</p>
+              <p style={{ color: '#000000', margin: '2px 0 0 0', fontWeight: 600 }}>Nationality: {customer.nationality}</p>
+              {customer.aadhaar && <p style={{ color: '#000000', margin: '2px 0 0 0', fontWeight: 600 }}>Aadhaar: {customer.aadhaar}</p>}
+              {booking.company_name && booking.company_name.trim() !== '' && (
+                <p style={{ color: '#000000', margin: '2px 0 0 0', fontWeight: 600 }}>Company Name: {booking.company_name}</p>
+              )}
+              {booking.company_gst && booking.company_gst.trim() !== '' && (
+                <p style={{ color: '#000000', margin: '2px 0 0 0', fontWeight: 600 }}>GST Number: {booking.company_gst}</p>
+              )}
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <h4 style={{ fontWeight: 700, color: '#000000', textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '9px', margin: '0 0 4px 0' }}>Stay Details</h4>
+              <p style={{ fontWeight: 700, color: '#000000', fontSize: '13px', margin: 0 }}>Room {booking.room_number}</p>
+              <p style={{ color: '#000000', fontWeight: 600, margin: '2px 0 0 0' }}>({booking.room_type} · {booking.ac_type})</p>
+              <p style={{ color: '#000000', fontWeight: 600, margin: '2px 0 0 0' }}>Check-in: {booking.check_in}</p>
+              <p style={{ color: '#000000', fontWeight: 600, margin: '2px 0 0 0' }}>Check-out: {booking.check_out || '--'}</p>
+            </div>
+          </div>
+
+          {/* Table */}
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', border: '2px solid #000000', marginBottom: '0px' }}>
+            <thead>
+              <tr style={{ background: '#ffffff', borderBottom: '2px solid #000000' }}>
+                <th style={{ padding: '8px 12px', fontWeight: 700, color: '#000000', textTransform: 'uppercase', borderRight: '2px solid #000000', borderBottom: '2px solid #000000' }}>Description</th>
+                <th style={{ padding: '8px 12px', fontWeight: 700, color: '#000000', textTransform: 'uppercase', textAlign: 'right', borderBottom: '2px solid #000000' }}>Amount (₹)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {/* Item Rows */}
+              <tr style={{ borderBottom: '1px solid #000000' }}>
+                <td style={{ padding: '6px 12px', fontWeight: 600, color: '#000000', borderRight: '2px solid #000000', borderBottom: '1px solid #000000' }}>Room Charges ({booking.stay_duration})</td>
+                <td style={{ padding: '6px 12px', fontWeight: 600, color: '#000000', textAlign: 'right', borderBottom: '1px solid #000000' }}>₹{rc.toFixed(2)}</td>
+              </tr>
+              {extraCharges.map((item, idx) => (
+                <tr key={idx} style={{ borderBottom: '1px solid #000000' }}>
+                  <td style={{ padding: '6px 12px', fontWeight: 600, color: '#000000', borderRight: '2px solid #000000', borderBottom: '1px solid #000000' }}>{item.description}</td>
+                  <td style={{ padding: '6px 12px', fontWeight: 600, color: '#000000', textAlign: 'right', borderBottom: '1px solid #000000' }}>₹{parseFloat(item.amount).toFixed(2)}</td>
+                </tr>
+              ))}
+              {/* Summary Rows */}
+              <tr style={{ borderBottom: '1px solid #000000' }}>
+                <td style={{ padding: '6px 12px', fontWeight: 700, color: '#000000', borderRight: '2px solid #000000', borderBottom: '1px solid #000000' }}>Subtotal</td>
+                <td style={{ padding: '6px 12px', fontWeight: 600, color: '#000000', textAlign: 'right', borderBottom: '1px solid #000000' }}>₹{subtotal.toFixed(2)}</td>
+              </tr>
+              <tr style={{ borderBottom: '1px solid #000000' }}>
+                <td style={{ padding: '6px 12px', fontWeight: 700, color: '#000000', borderRight: '2px solid #000000', borderBottom: '1px solid #000000' }}>GST ({gstRate}%)</td>
+                <td style={{ padding: '6px 12px', fontWeight: 600, color: '#000000', textAlign: 'right', borderBottom: '1px solid #000000' }}>₹{gstVal.toFixed(2)}</td>
+              </tr>
+              <tr style={{ borderBottom: '1px solid #000000', fontWeight: 700 }}>
+                <td style={{ padding: '6px 12px', fontWeight: 700, color: '#000000', borderRight: '2px solid #000000', borderBottom: '1px solid #000000' }}>Grand Total</td>
+                <td style={{ padding: '6px 12px', fontWeight: 700, color: '#000000', textAlign: 'right', borderBottom: '1px solid #000000' }}>₹{grandTotal.toFixed(2)}</td>
+              </tr>
+              <tr style={{ borderBottom: '1px solid #000000' }}>
+                <td style={{ padding: '6px 12px', fontWeight: 700, color: '#000000', borderRight: '2px solid #000000', borderBottom: '1px solid #000000' }}>Total Paid</td>
+                <td style={{ padding: '6px 12px', fontWeight: 600, color: '#000000', textAlign: 'right', borderBottom: '1px solid #000000' }}>₹{alreadyPaid.toFixed(2)}</td>
+              </tr>
+              <tr style={{ fontWeight: 700 }}>
+                <td style={{ padding: '6px 12px', fontWeight: 700, color: '#000000', borderRight: '2px solid #000000' }}>Pending Amount</td>
+                <td style={{ padding: '6px 12px', fontWeight: 700, color: '#000000', textAlign: 'right' }}>₹{pendingAmount.toFixed(2)}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          {/* Remarks Section */}
+          {booking.remarks && booking.remarks.trim() !== '' && (
+            <div style={{ marginTop: '16px', fontSize: '11px', textAlign: 'left' }}>
+              <div style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '9px', marginBottom: '4px' }}>Remarks</div>
+              <div style={{ borderTop: '1px solid #000000', borderBottom: '1px solid #000000', padding: '6px 0', fontWeight: 600 }}>
+                {booking.remarks}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

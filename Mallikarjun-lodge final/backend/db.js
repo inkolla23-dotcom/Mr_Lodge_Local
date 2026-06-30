@@ -167,6 +167,30 @@ async function initDB() {
       // Column already exists — fine
     }
 
+    // Migrate: add company_name to bookings if it doesn't exist yet
+    try {
+      await conn.query(`ALTER TABLE bookings ADD COLUMN company_name VARCHAR(255) NULL`);
+      console.log('Migration: added company_name to bookings table');
+    } catch (alterErr) {
+      // Already exists
+    }
+
+    // Migrate: add company_gst to bookings if it doesn't exist yet
+    try {
+      await conn.query(`ALTER TABLE bookings ADD COLUMN company_gst VARCHAR(50) NULL`);
+      console.log('Migration: added company_gst to bookings table');
+    } catch (alterErr) {
+      // Already exists
+    }
+
+    // Migrate: add id_type to bookings if it doesn't exist yet
+    try {
+      await conn.query(`ALTER TABLE bookings ADD COLUMN id_type VARCHAR(50) NULL`);
+      console.log('Migration: added id_type to bookings table');
+    } catch (alterErr) {
+      // Already exists
+    }
+
     // 10. reviews table
     await conn.query(`
       CREATE TABLE IF NOT EXISTS reviews (

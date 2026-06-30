@@ -12,7 +12,7 @@ async function downloadPDF(elementId: string, filename: string) {
     const html2canvas = html2canvasModule.default;
     const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false });
     const imgData = canvas.toDataURL('image/png');
-    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+     const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
     const imgHeight = (canvas.height * pageWidth) / canvas.width;
@@ -49,6 +49,8 @@ interface LedgerEntry {
   purpose: string;
   mode_of_travel: string;
   check_in: string;
+  id_type?: string;
+  aadhaar?: string;
 }
 
 export default function LedgerBook() {
@@ -84,6 +86,7 @@ export default function LedgerBook() {
   }, [fromDate, toDate]);
 
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [printLoading, setPrintLoading] = useState(false);
 
   const handleTodayFilter = () => {
     const todayStr = getTodayDateStr();
@@ -91,12 +94,107 @@ export default function LedgerBook() {
     setToDate(todayStr);
   };
 
-  const handlePrint = () => { window.print(); };
+  // Helper to chunk entries
+  const chunkEntries = (arr: LedgerEntry[], size: number) => {
+    const chunks = [];
+    for (let i = 0; i < arr.length; i += size) {
+      chunks.push(arr.slice(i, i + size));
+    }
+    return chunks;
+  };
+  const pages = chunkEntries(entries, 10);
+
+  const handlePrint = async () => {
+    if (entries.length === 0) {
+      alert('No ledger entries available to print.');
+      return;
+    }
+    setPrintLoading(true);
+    try {
+      const { default: jsPDF } = await import('jspdf');
+      const { default: html2canvas } = await import('html2canvas');
+
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pw = pdf.internal.pageSize.getWidth();
+      const ph = pdf.internal.pageSize.getHeight();
+
+      const chunkCount = pages.length;
+      for (let i = 0; i < chunkCount; i++) {
+        const pageEl = document.getElementById(`ledger-print-page-${i}`);
+        if (!pageEl) throw new Error(`Could not find print template for page ${i + 1}`);
+
+        const canvas = await html2canvas(pageEl, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: '#ffffff',
+          logging: false
+        });
+        const imgData = canvas.toDataURL('image/png');
+
+        if (i > 0) {
+          pdf.addPage();
+        }
+        pdf.addImage(imgData, 'PNG', 0, 0, pw, ph);
+      }
+
+      const blob = pdf.output('blob');
+      const formData = new FormData();
+      formData.append('invoice', blob, `LedgerBook-${fromDate}-to-${toDate}.pdf`);
+
+      await apiFetch('/invoices/print', {
+        method: 'POST',
+        body: formData,
+      });
+
+      alert('Ledger Book report sent to printer successfully.');
+    } catch (err: any) {
+      console.error('Silent print failed:', err);
+      alert(`Silent printing failed: ${err.message || err}`);
+    } finally {
+      setPrintLoading(false);
+    }
+  };
 
   const handleDownloadPDF = async () => {
+    if (entries.length === 0) {
+      alert('No ledger entries available to download.');
+      return;
+    }
     setPdfLoading(true);
-    await downloadPDF('ledger-print-area', `LedgerBook-${fromDate}-to-${toDate}.pdf`);
-    setPdfLoading(false);
+    try {
+      const { default: jsPDF } = await import('jspdf');
+      const { default: html2canvas } = await import('html2canvas');
+
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pw = pdf.internal.pageSize.getWidth();
+      const ph = pdf.internal.pageSize.getHeight();
+
+      const chunkCount = pages.length;
+      for (let i = 0; i < chunkCount; i++) {
+        const pageEl = document.getElementById(`ledger-print-page-${i}`);
+        if (!pageEl) throw new Error(`Could not find print template for page ${i + 1}`);
+
+        const canvas = await html2canvas(pageEl, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: '#ffffff',
+          logging: false
+        });
+        const imgData = canvas.toDataURL('image/png');
+
+        if (i > 0) {
+          pdf.addPage();
+        }
+        pdf.addImage(imgData, 'PNG', 0, 0, pw, ph);
+      }
+
+      pdf.save(`LedgerBook-${fromDate}-to-${toDate}.pdf`);
+    } catch (err: any) {
+      console.error('PDF download failed:', err);
+      alert(`PDF download failed: ${err.message || err}`);
+    } finally {
+      setPdfLoading(false);
+    }
   };
 
   return (
@@ -146,9 +244,10 @@ export default function LedgerBook() {
         <div className="flex gap-2">
           <button
             onClick={handlePrint}
-            className="flex items-center gap-1.5 px-4 py-2 border border-gray-200 bg-white rounded-lg text-xs font-bold text-gray-700 hover:bg-gray-50 transition"
+            disabled={printLoading}
+            className="flex items-center gap-1.5 px-4 py-2 border border-gray-200 bg-white rounded-lg text-xs font-bold text-gray-700 hover:bg-gray-50 transition disabled:opacity-60"
           >
-            <Printer className="w-4 h-4" /> Print
+            <Printer className="w-4 h-4" /> {printLoading ? 'Printing...' : 'Print'}
           </button>
 
           <button
@@ -222,6 +321,11 @@ export default function LedgerBook() {
                     <td className="p-3 text-gray-800 font-semibold max-w-[200px]">
                       <div>{entry.name}</div>
                       <div className="text-[10px] text-gray-400 font-medium leading-relaxed mt-0.5">{entry.address || '—'}</div>
+                      {entry.aadhaar && entry.aadhaar.trim() !== '' && (
+                        <div className="text-[10px] text-gray-700 font-bold leading-relaxed mt-1">
+                          {entry.id_type || 'Aadhaar'}: {entry.aadhaar}
+                        </div>
+                      )}
                     </td>
                     <td className="p-3 font-semibold text-gray-700">{entry.age}</td>
                     <td className="p-3 font-semibold text-gray-600">{entry.occupation}</td>
@@ -253,6 +357,144 @@ export default function LedgerBook() {
 
       </div>
 
+      {/* Hidden Multi-Page Ledger Print Template */}
+      <div id="ledger-silent-print-template" style={{ position: 'absolute', left: '-9999px', top: '-9999px', width: '1024px' }}>
+        {pages.map((chunk, pageIdx) => (
+          <div
+            key={pageIdx}
+            id={`ledger-print-page-${pageIdx}`}
+            style={{
+              width: '1024px',
+              height: '1448px',
+              padding: '40px',
+              boxSizing: 'border-box',
+              backgroundColor: '#ffffff',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              border: '1px solid #e5e7eb',
+              marginBottom: '20px'
+            }}
+          >
+            <div>
+              {/* Header */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', borderBottom: '2px solid #000000', paddingBottom: '16px', marginBottom: '24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                  <div style={{ width: '48px', height: '48px', borderRadius: '50%', overflow: 'hidden', border: '1px solid #000000', padding: '2px', backgroundColor: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <img src="/logo.png" alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                  </div>
+                  <h1 style={{ fontSize: '24px', fontWeight: 800, color: '#000000', margin: 0 }}>Mallikarjun (Ravi) Lodge</h1>
+                </div>
+                <p style={{ fontSize: '11px', color: '#000000', fontWeight: 600, margin: '4px 0 0 0', maxWidth: '600px', lineHeight: 1.4 }}>
+                  4-8-495/1, Gowliguda, Ram Mandir Road, Near MGBS, Hyderabad - 500012 &nbsp;·&nbsp; Ph: 6300 100 426 &nbsp;·&nbsp; GST: 36EJUPR1626A1Z2
+                </p>
+                <div style={{ height: '1px', backgroundColor: '#000000', width: '100%', margin: '12px 0' }} />
+                <h2 style={{ fontSize: '14px', fontWeight: 800, textTransform: 'uppercase', color: '#000000', letterSpacing: '0.05em', margin: 0 }}>
+                  Daily Register: {fromDate} to {toDate} &nbsp;(Page {pageIdx + 1} of {pages.length})
+                </h2>
+              </div>
+
+              {/* Table */}
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ background: '#ffffff', borderBottom: '2px solid #000000', borderTop: '2px solid #000000' }}>
+                    <th style={{ padding: '10px 4px', fontWeight: 700, color: '#000000', textTransform: 'uppercase', fontSize: '11pt' }}>#</th>
+                    <th style={{ padding: '10px 4px', fontWeight: 700, color: '#000000', textTransform: 'uppercase', fontSize: '11pt' }}>Name & Address</th>
+                    <th style={{ padding: '10px 4px', fontWeight: 700, color: '#000000', textTransform: 'uppercase', fontSize: '11pt' }}>Age</th>
+                    <th style={{ padding: '10px 4px', fontWeight: 700, color: '#000000', textTransform: 'uppercase', fontSize: '11pt' }}>Occupation</th>
+                    <th style={{ padding: '10px 4px', fontWeight: 700, color: '#000000', textTransform: 'uppercase', fontSize: '11pt' }}>Nationality</th>
+                    <th style={{ padding: '10px 4px', fontWeight: 700, color: '#000000', textTransform: 'uppercase', fontSize: '11pt' }}>Room</th>
+                    <th style={{ padding: '10px 4px', fontWeight: 700, color: '#000000', textTransform: 'uppercase', fontSize: '11pt', textAlign: 'center' }}>G</th>
+                    <th style={{ padding: '10px 4px', fontWeight: 700, color: '#000000', textTransform: 'uppercase', fontSize: '11pt', textAlign: 'center' }}>L</th>
+                    <th style={{ padding: '10px 4px', fontWeight: 700, color: '#000000', textTransform: 'uppercase', fontSize: '11pt', textAlign: 'center' }}>C</th>
+                    <th style={{ padding: '10px 4px', fontWeight: 700, color: '#000000', textTransform: 'uppercase', fontSize: '11pt', textAlign: 'center' }}>Total</th>
+                    <th style={{ padding: '10px 4px', fontWeight: 700, color: '#000000', textTransform: 'uppercase', fontSize: '11pt' }}>Arriving From</th>
+                    <th style={{ padding: '10px 4px', fontWeight: 700, color: '#000000', textTransform: 'uppercase', fontSize: '11pt' }}>Purpose</th>
+                    <th style={{ padding: '10px 4px', fontWeight: 700, color: '#000000', textTransform: 'uppercase', fontSize: '11pt' }}>Mode</th>
+                    <th style={{ padding: '10px 4px', fontWeight: 700, color: '#000000', textTransform: 'uppercase', fontSize: '11pt' }}>Arrival Date & Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {chunk.map((entry, idx) => (
+                    <tr key={entry.id} style={{ borderBottom: '1px solid #000000' }}>
+                      <td style={{ padding: '10px 4px', fontWeight: 600, color: '#000000', fontSize: '10pt' }}>{pageIdx * 10 + idx + 1}</td>
+                      <td style={{ padding: '10px 4px', color: '#000000', fontWeight: 600, fontSize: '10pt', maxWidth: '160px', wordBreak: 'break-word' }}>
+                        <div style={{ fontWeight: 700 }}>{entry.name}</div>
+                        <div style={{ fontSize: '10pt', color: '#000000', marginTop: '2px', fontWeight: 600 }}>{entry.address || '—'}</div>
+                        {entry.aadhaar && entry.aadhaar.trim() !== '' && (
+                          <div style={{ fontSize: '9.5pt', color: '#000000', fontWeight: 600, marginTop: '2px' }}>
+                            {entry.id_type || 'Aadhaar'}: {entry.aadhaar}
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ padding: '10px 4px', color: '#000000', fontWeight: 600, fontSize: '10pt' }}>{entry.age}</td>
+                      <td style={{ padding: '10px 4px', color: '#000000', fontWeight: 600, fontSize: '10pt' }}>{entry.occupation}</td>
+                      <td style={{ padding: '10px 4px', color: '#000000', fontWeight: 600, fontSize: '10pt' }}>{entry.nationality}</td>
+                      <td style={{ padding: '10px 4px', color: '#000000', fontWeight: 600, fontSize: '10pt' }}>{entry.room_number}</td>
+                      <td style={{ padding: '10px 4px', color: '#000000', fontWeight: 600, fontSize: '10pt', textAlign: 'center' }}>{entry.num_gents ?? 0}</td>
+                      <td style={{ padding: '10px 4px', color: '#000000', fontWeight: 600, fontSize: '10pt', textAlign: 'center' }}>{entry.num_ladies ?? 0}</td>
+                      <td style={{ padding: '10px 4px', color: '#000000', fontWeight: 600, fontSize: '10pt', textAlign: 'center' }}>{entry.num_children ?? 0}</td>
+                      <td style={{ padding: '10px 4px', color: '#000000', fontWeight: 600, fontSize: '10pt', textAlign: 'center' }}>
+                        {(entry.num_gents ?? 0) + (entry.num_ladies ?? 0) + (entry.num_children ?? 0) || entry.num_persons}
+                      </td>
+                      <td style={{ padding: '10px 4px', color: '#000000', fontWeight: 600, fontSize: '10pt' }}>{entry.arriving_from}</td>
+                      <td style={{ padding: '10px 4px', color: '#000000', fontWeight: 600, fontSize: '10pt' }}>{entry.purpose}</td>
+                      <td style={{ padding: '10px 4px', color: '#000000', fontWeight: 600, fontSize: '10pt' }}>{entry.mode_of_travel}</td>
+                      <td style={{ padding: '10px 4px', color: '#000000', fontWeight: 600, fontSize: '10pt' }}>{entry.check_in}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Footer */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #000000', paddingTop: '12px', fontSize: '10px', fontWeight: 700, color: '#000000', textTransform: 'uppercase' }}>
+              <span>Mallikarjun (Ravi) Lodge</span>
+              <span>Contact Ph: 6300 100 426</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <style>{`
+        @media print {
+          @page {
+            size: A4 portrait;
+            margin: 8mm;
+          }
+          body, html, #root, .min-h-screen, main {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            background: #ffffff !important;
+            overflow: visible !important;
+          }
+          .no-print {
+            display: none !important;
+          }
+          #ledger-print-area {
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            width: 145% !important;
+            transform: scale(0.69) !important;
+            transform-origin: top left !important;
+            overflow: visible !important;
+            display: block !important;
+          }
+          #ledger-print-area .overflow-x-auto {
+            overflow: visible !important;
+          }
+          #ledger-print-area table {
+            width: 100% !important;
+            table-layout: auto !important;
+          }
+          #ledger-print-area tr {
+            page-break-inside: avoid !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }

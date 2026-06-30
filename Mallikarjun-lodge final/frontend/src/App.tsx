@@ -165,8 +165,8 @@ export default function App() {
       case 'reviews': return <ReviewsPage />;
       case 'ledger-book': return <LedgerBook />;
       case 'reports': return <Reports />;
-      case 'user-access': return <UserAccess />;
-      case 'activity-log': return <ActivityLog />;
+      case 'user-access': return user?.role === 'Owner' ? <UserAccess /> : <Dashboard />;
+      case 'activity-log': return (user?.role === 'Owner' || user?.role === 'Admin') ? <ActivityLog /> : <Dashboard />;
       case 'system-backup': return (user?.role === 'Owner' || user?.role === 'Admin') ? <SystemBackup /> : <Dashboard />;
       default: return <Dashboard />;
     }

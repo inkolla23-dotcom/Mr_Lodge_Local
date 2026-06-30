@@ -33,13 +33,14 @@ export default function Sidebar({ currentTab, setCurrentTab, user, onLogout }: S
     { id: 'reports', label: 'Reports', icon: BarChart3 },
   ];
 
-  const adminItems = [
-    { id: 'user-access', label: 'User Access', icon: UserCheck },
-    { id: 'activity-log', label: 'Activity Log', icon: Activity },
-  ];
-
-  // System Backup — Owner and Admin only
-  const isOwnerOrAdmin = user?.role === 'Owner' || user?.role === 'Admin';
+  const adminItems = [];
+  if (user?.role === 'Owner') {
+    adminItems.push({ id: 'user-access', label: 'User Access', icon: UserCheck });
+  }
+  if (user?.role === 'Owner' || user?.role === 'Admin') {
+    adminItems.push({ id: 'activity-log', label: 'Activity Log', icon: Activity });
+    adminItems.push({ id: 'system-backup', label: 'System Backup', icon: Database });
+  }
 
   return (
     <aside className="w-64 bg-lodge-brown text-lodge-textBeige flex flex-col min-h-screen shadow-lg no-print select-none">
@@ -76,9 +77,11 @@ export default function Sidebar({ currentTab, setCurrentTab, user, onLogout }: S
         })}
 
         {/* Admin Section Header */}
-        <div className="pt-6 pb-2 px-4 text-[10px] uppercase font-bold text-gray-500 tracking-wider">
-          Admin
-        </div>
+        {adminItems.length > 0 && (
+          <div className="pt-6 pb-2 px-4 text-[10px] uppercase font-bold text-gray-500 tracking-wider">
+            Admin
+          </div>
+        )}
 
         {adminItems.map((item) => {
           const Icon = item.icon;
@@ -98,20 +101,6 @@ export default function Sidebar({ currentTab, setCurrentTab, user, onLogout }: S
             </button>
           );
         })}
-        {/* System Backup — Owner / Admin only */}
-        {isOwnerOrAdmin && (
-          <button
-            onClick={() => setCurrentTab('system-backup')}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-              currentTab === 'system-backup'
-                ? 'bg-lodge-accent text-lodge-brown font-semibold shadow-md'
-                : 'hover:bg-white/5 hover:text-white text-gray-300'
-            }`}
-          >
-            <Database className="w-4 h-4" />
-            System Backup
-          </button>
-        )}
       </nav>
 
       {/* User Footer */}

@@ -75,11 +75,13 @@ export async function apiFetch(endpoint: string, options: RequestInit = {}) {
   // We return 401 for ALL token problems (missing, expired, invalid).
   // Fire the session-expired event so App.tsx can redirect to login.
   if (response.status === 401) {
+    const errorData = await response.json().catch(() => ({}));
+    const msg = errorData.message || 'Session expired. Please login again.';
     clearSession();
     window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT, {
-      detail: { message: 'Session expired. Please login again.' }
+      detail: { message: msg }
     }));
-    const err: any = new Error('Session expired. Please login again.');
+    const err: any = new Error(msg);
     err.status = 401;
     err.isAuthError = true;
     throw err;

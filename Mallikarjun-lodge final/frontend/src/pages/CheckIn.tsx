@@ -240,6 +240,8 @@ export default function CheckIn({ selectedRoom, onCheckInComplete, onCancel }: C
   const [customPurpose, setCustomPurpose] = useState('');
   const [customTravel, setCustomTravel] = useState('');
   const [remarks, setRemarks] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [companyGst, setCompanyGst] = useState('');
 
   // G/L/C/T person breakdown — numPersons auto-derived
   const [numGents, setNumGents] = useState('0');
@@ -349,6 +351,8 @@ export default function CheckIn({ selectedRoom, onCheckInComplete, onCancel }: C
       fd.append('arriving_from', arrivingFrom);
       fd.append('mode_of_travel', modeOfTravel === 'Other' ? customTravel : modeOfTravel);
       fd.append('remarks', remarks);
+      fd.append('company_name', companyName);
+      fd.append('company_gst', companyGst);
       fd.append('num_gents', numGents || '0');
       fd.append('num_ladies', numLadies || '0');
       fd.append('num_children', numChildren || '0');
@@ -731,6 +735,16 @@ export default function CheckIn({ selectedRoom, onCheckInComplete, onCancel }: C
                 className="mt-2 w-full bg-gray-50 border border-lodge-accent rounded-lg p-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-lodge-accent outline-none"
               />
             )}
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Company Name</label>
+            <input type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Optional"
+              className="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-lodge-accent outline-none" />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">GST Number</label>
+            <input type="text" value={companyGst} onChange={(e) => setCompanyGst(e.target.value)} placeholder="Optional"
+              className="w-full bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-lodge-accent outline-none" />
           </div>
         </div>
 

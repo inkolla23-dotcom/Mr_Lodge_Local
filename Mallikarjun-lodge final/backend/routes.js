@@ -3,6 +3,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
+const ptp = require('pdf-to-printer');
 const fs = require('fs');
 const path = require('path');
 const { pool } = require('./db');
@@ -23,7 +24,7 @@ const storage = multer.diskStorage({
     cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
   }
 });
-const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } }); // 10 MB
+const upload = multer({ storage, limits: { fileSize: 100 * 1024 * 1024 } }); // 100 MB
 
 // Helper to save webcam base64 images
 function saveBase64Image(base64Data, prefix = 'webcam') {
@@ -52,17 +53,29 @@ function authenticateToken(req, res, next) {
     return res.status(401).json({ message: 'Session expired. Please login again.', code: 'TOKEN_MISSING' });
   }
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
+  jwt.verify(token, JWT_SECRET, async (err, decodedUser) => {
     if (err) {
-      // TokenExpiredError → session expired (user must log in again)
       if (err.name === 'TokenExpiredError') {
         return res.status(401).json({ message: 'Session expired. Please login again.', code: 'TOKEN_EXPIRED' });
       }
-      // JsonWebTokenError, NotBeforeError → bad token (tampered or wrong secret)
       return res.status(401).json({ message: 'Session expired. Please login again.', code: 'TOKEN_INVALID' });
     }
-    req.user = user;
-    next();
+
+    try {
+      const [rows] = await pool.query('SELECT status, role FROM users WHERE id = ?', [decodedUser.id]);
+      if (rows.length === 0 || rows[0].status !== 'approved') {
+        return res.status(401).json({ message: 'User account is inactive or suspended.' });
+      }
+
+      req.user = {
+        ...decodedUser,
+        role: rows[0].role
+      };
+      next();
+    } catch (dbErr) {
+      console.error('authenticateToken database check failed:', dbErr);
+      return res.status(500).json({ message: 'Server error during authentication' });
+    }
   });
 }
 
@@ -174,7 +187,7 @@ router.post('/auth/login', async (req, res) => {
     const [users] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
     if (users.length === 0) return res.status(400).json({ message: 'Invalid credentials' });
     const user = users[0];
-    if (user.status !== 'approved') return res.status(403).json({ message: 'Your registration request is pending approval.' });
+    if (user.status !== 'approved') return res.status(403).json({ message: 'Your account is pending approval or has been suspended.' });
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
     const token = jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: '24h' });
@@ -192,6 +205,9 @@ router.post('/auth/logout', authenticateToken, async (req, res) => {
 });
 
 router.get('/auth/all-users', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'Owner') {
+    return res.status(403).json({ message: 'Forbidden. Owner privileges required.' });
+  }
   try {
     const [users] = await pool.query('SELECT id, email, name, role, status, created_at FROM users');
     res.json(users);
@@ -202,10 +218,16 @@ router.get('/auth/all-users', authenticateToken, async (req, res) => {
 });
 
 router.post('/auth/approve-user', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'Owner') {
+    return res.status(403).json({ message: 'Forbidden. Owner privileges required.' });
+  }
   const { userId, role, status } = req.body;
   try {
     const [userRow] = await pool.query('SELECT email, name FROM users WHERE id = ?', [userId]);
     if (userRow.length === 0) return res.status(404).json({ message: 'User not found' });
+    if (userRow[0].email === 'mrlodge26@gmail.com') {
+      return res.status(400).json({ message: 'Primary owner cannot be modified.' });
+    }
     await pool.query('UPDATE users SET role = ?, status = ? WHERE id = ?', [role, status, userId]);
     await logActivity(req.user.email, 'User Access Changes', `Approved/Updated user ${userRow[0].email} to ${role} (${status})`);
     res.json({ message: 'User approved/updated successfully' });
@@ -216,11 +238,16 @@ router.post('/auth/approve-user', authenticateToken, async (req, res) => {
 });
 
 router.post('/auth/remove-user', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'Owner') {
+    return res.status(403).json({ message: 'Forbidden. Owner privileges required.' });
+  }
   const { userId } = req.body;
   try {
     const [userRow] = await pool.query('SELECT email FROM users WHERE id = ?', [userId]);
     if (userRow.length === 0) return res.status(404).json({ message: 'User not found' });
-    if (userRow[0].email === 'mrlodge26@gmail.com') return res.status(400).json({ message: 'Cannot delete the primary owner account.' });
+    if (userRow[0].email === 'mrlodge26@gmail.com') {
+      return res.status(400).json({ message: 'Primary owner cannot be modified.' });
+    }
     await pool.query('DELETE FROM users WHERE id = ?', [userId]);
     await logActivity(req.user.email, 'User Access Changes', `Removed user ${userRow[0].email}`);
     res.json({ message: 'User deleted' });
@@ -411,7 +438,8 @@ router.post('/bookings/check-in', authenticateToken, checkinUpload, async (req, 
     stay_duration, num_persons, purpose, arriving_from, mode_of_travel, remarks,
     num_gents, num_ladies, num_children,
     webcam_front_id, webcam_back_id, webcam_guest_photo,
-    additional_guests
+    additional_guests,
+    company_name, company_gst
   } = req.body;
 
   try {
@@ -471,10 +499,10 @@ router.post('/bookings/check-in', authenticateToken, checkinUpload, async (req, 
     }
 
     const [bookingInsert] = await pool.query(
-      `INSERT INTO bookings (room_id,customer_id,check_in,stay_duration,num_persons,purpose,arriving_from,mode_of_travel,remarks,num_gents,num_ladies,num_children,status,invoice_number)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'active',?)`,
+      `INSERT INTO bookings (room_id,customer_id,check_in,stay_duration,num_persons,purpose,arriving_from,mode_of_travel,remarks,num_gents,num_ladies,num_children,status,invoice_number,company_name,company_gst,id_type)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'active',?,?,?,?)`,
       [room_id, customerId, checkinTime, stay_duration, num_persons||1, purpose||'Work', arriving_from, mode_of_travel||'Bus', remarks||'',
-       parseInt(num_gents)||0, parseInt(num_ladies)||0, parseInt(num_children)||0, invoiceNumber]
+       parseInt(num_gents)||0, parseInt(num_ladies)||0, parseInt(num_children)||0, invoiceNumber, company_name||null, company_gst||null, id_type||'Aadhaar']
     );
     const bookingId = bookingInsert.insertId;
 
@@ -565,9 +593,93 @@ router.get('/bookings', async (req, res) => {
   }
 });
 
-// ==========================================
-// INVOICES ROUTES
-// ==========================================
+// POST /invoices/print
+router.post('/invoices/print', upload.single('invoice'), async (req, res) => {
+  if (!req.file) {
+    console.error('[PRINT ERROR] No invoice PDF file uploaded.');
+    return res.status(400).json({ message: 'No invoice PDF file uploaded.' });
+  }
+
+  const filePath = req.file.path;
+  console.log(`[PRINT LOG] PDF file path: ${filePath}`);
+
+  // 1. Verify file exists and is readable before printing
+  try {
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`PDF file does not exist at path: ${filePath}`);
+    }
+    fs.accessSync(filePath, fs.constants.R_OK);
+    console.log(`[PRINT LOG] PDF exists before printing and is readable.`);
+  } catch (err) {
+    console.error(`[PRINT ERROR] PDF file verification failed:`, err);
+    return res.status(400).json({ message: 'Uploaded PDF is not readable or does not exist.', error: err.message });
+  }
+
+  try {
+    // 2. Enumerate installed printers
+    console.log('[PRINT LOG] Enumerating installed printers...');
+    const printers = await ptp.getPrinters();
+    console.log('[PRINT LOG] Installed printers:', JSON.stringify(printers, null, 2));
+
+    // 3. Detect Windows default printer
+    const defaultPrinter = await ptp.getDefaultPrinter();
+    console.log('[PRINT LOG] Detected Windows default printer:', defaultPrinter);
+
+    // 4. Select the printer
+    let selectedPrinter = null;
+    const hpPrinterName = "HP LaserJet Pro MFP M126a";
+    const hasHpPrinter = printers.some(p => p.name === hpPrinterName || p.deviceId === hpPrinterName);
+
+    if (hasHpPrinter) {
+      selectedPrinter = hpPrinterName;
+      console.log(`[PRINT LOG] Target HP printer "${hpPrinterName}" found in installed printers.`);
+    } else {
+      selectedPrinter = defaultPrinter ? (defaultPrinter.name || defaultPrinter.deviceId) : null;
+      console.log(`[PRINT LOG] Target HP printer not found. Using default system printer: "${selectedPrinter}"`);
+    }
+
+    if (!selectedPrinter) {
+      throw new Error('No printer selected (no installed printers or default printer detected).');
+    }
+
+    console.log(`[PRINT LOG] Selected printer: ${selectedPrinter}`);
+    console.log('[PRINT LOG] Print started.');
+
+    // 5. Print and await the command to finish completely
+    await ptp.print(filePath, {
+      printer: selectedPrinter
+    });
+
+    console.log('[PRINT LOG] Print finished.');
+
+    // 6. Delete temporary PDF only after successful printing
+    fs.unlink(filePath, (unlinkErr) => {
+      if (unlinkErr) {
+        console.error(`[PRINT ERROR] Failed to delete temporary print file ${filePath}:`, unlinkErr.message);
+      } else {
+        console.log(`[PRINT LOG] Successfully deleted temporary print file: ${filePath}`);
+      }
+    });
+
+    return res.json({ message: 'Invoice sent to printer successfully.' });
+
+  } catch (err) {
+    console.error('[PRINT ERROR] Print job execution failed. Exception stack trace:', err.stack || err);
+    if (err.cmd) {
+      console.error('[PRINT ERROR] Windows print command details:', err.cmd);
+    }
+
+    // Clean up file if printing failed
+    fs.unlink(filePath, () => {});
+
+    return res.status(500).json({
+      message: 'Silent printing failed',
+      error: err.message || String(err),
+      stack: err.stack,
+      cmd: err.cmd
+    });
+  }
+});
 
 router.get('/invoices', async (req, res) => {
   const { status, search } = req.query;
@@ -793,7 +905,7 @@ router.get('/ledger', async (req, res) => {
   const { fromDate, toDate } = req.query;
   try {
     const [bookings] = await pool.query(`
-      SELECT b.*, r.room_number, c.name, c.address, c.age, c.occupation, c.nationality,
+      SELECT b.*, r.room_number, c.name, c.address, c.age, c.occupation, c.nationality, c.aadhaar,
              COALESCE(b.num_gents,0) as num_gents,
              COALESCE(b.num_ladies,0) as num_ladies,
              COALESCE(b.num_children,0) as num_children
