@@ -612,30 +612,58 @@ router.post('/invoices/print', upload.single('invoice'), async (req, res) => {
     console.log(`[PRINT LOG] PDF exists before printing and is readable.`);
   } catch (err) {
     console.error(`[PRINT ERROR] PDF file verification failed:`, err);
+    try { fs.unlinkSync(filePath); } catch (e) {}
     return res.status(400).json({ message: 'Uploaded PDF is not readable or does not exist.', error: err.message });
   }
 
   try {
-    // 2. Enumerate installed printers
-    console.log('[PRINT LOG] Enumerating installed printers...');
-    const printers = await ptp.getPrinters();
-    console.log('[PRINT LOG] Installed printers:', JSON.stringify(printers, null, 2));
+    // 2. Enumerate installed printers with fallback protection
+    let printers = [];
+    try {
+      console.log('[PRINT LOG] Enumerating installed printers...');
+      printers = await ptp.getPrinters();
+      console.log('[PRINT LOG] Installed printers:', JSON.stringify(printers, null, 2));
+    } catch (e) {
+      console.error('[PRINT LOG] Printer enumeration failed (PowerShell execution restriction?):', e.message);
+    }
 
-    // 3. Detect Windows default printer
-    const defaultPrinter = await ptp.getDefaultPrinter();
-    console.log('[PRINT LOG] Detected Windows default printer:', defaultPrinter);
+    // 3. Detect Windows default printer with fallback protection
+    let defaultPrinter = null;
+    try {
+      defaultPrinter = await ptp.getDefaultPrinter();
+      console.log('[PRINT LOG] Detected Windows default printer:', defaultPrinter);
+    } catch (e) {
+      console.error('[PRINT LOG] Default printer detection failed:', e.message);
+    }
 
-    // 4. Select the printer
+    // 4. Select the printer using dynamic case-insensitive/partial matching
     let selectedPrinter = null;
     const hpPrinterName = "HP LaserJet Pro MFP M126a";
-    const hasHpPrinter = printers.some(p => p.name === hpPrinterName || p.deviceId === hpPrinterName);
+    const hpAlternativeName = "Hewlett-Packard HP LaserJet Pro MFP M126a";
 
-    if (hasHpPrinter) {
-      selectedPrinter = hpPrinterName;
-      console.log(`[PRINT LOG] Target HP printer "${hpPrinterName}" found in installed printers.`);
-    } else {
-      selectedPrinter = defaultPrinter ? (defaultPrinter.name || defaultPrinter.deviceId) : null;
+    const foundPrinter = printers.find(p => {
+      const name = p.name || '';
+      const deviceId = p.deviceId || '';
+      return (
+        name.toLowerCase() === hpPrinterName.toLowerCase() ||
+        deviceId.toLowerCase() === hpPrinterName.toLowerCase() ||
+        name.toLowerCase() === hpAlternativeName.toLowerCase() ||
+        deviceId.toLowerCase() === hpAlternativeName.toLowerCase() ||
+        name.toLowerCase().includes("m126a") ||
+        deviceId.toLowerCase().includes("m126a")
+      );
+    });
+
+    if (foundPrinter) {
+      selectedPrinter = foundPrinter.name || foundPrinter.deviceId;
+      console.log(`[PRINT LOG] Target HP printer found: "${selectedPrinter}"`);
+    } else if (defaultPrinter) {
+      selectedPrinter = defaultPrinter.name || defaultPrinter.deviceId;
       console.log(`[PRINT LOG] Target HP printer not found. Using default system printer: "${selectedPrinter}"`);
+    } else {
+      // Hardcoded default fallback if enumeration & default detection failed entirely
+      selectedPrinter = hpPrinterName;
+      console.log(`[PRINT LOG] No printer detection available. Falling back to default printer name: "${selectedPrinter}"`);
     }
 
     if (!selectedPrinter) {
@@ -643,23 +671,50 @@ router.post('/invoices/print', upload.single('invoice'), async (req, res) => {
     }
 
     console.log(`[PRINT LOG] Selected printer: ${selectedPrinter}`);
+
+    // 5. Resolve SumatraPDF executable path with robust fallback list
+    let sumatraPdfPath = path.join(__dirname, 'node_modules', 'pdf-to-printer', 'dist', 'SumatraPDF-3.4.6-32.exe');
+    if (!fs.existsSync(sumatraPdfPath)) {
+      sumatraPdfPath = path.resolve(__dirname, '..', 'node_modules', 'pdf-to-printer', 'dist', 'SumatraPDF-3.4.6-32.exe');
+    }
+
+    const systemPaths = [
+      'C:\\Program Files\\SumatraPDF\\SumatraPDF.exe',
+      'C:\\Program Files (x86)\\SumatraPDF\\SumatraPDF.exe'
+    ];
+    let customPdfPath = null;
+    if (fs.existsSync(sumatraPdfPath)) {
+      customPdfPath = sumatraPdfPath;
+      console.log(`[PRINT LOG] Using resolved bundled SumatraPDF at: ${customPdfPath}`);
+    } else {
+      for (const sp of systemPaths) {
+        if (fs.existsSync(sp)) {
+          customPdfPath = sp;
+          console.log(`[PRINT LOG] Using system installed SumatraPDF at: ${customPdfPath}`);
+          break;
+        }
+      }
+    }
+
     console.log('[PRINT LOG] Print started.');
 
-    // 5. Print and await the command to finish completely
-    await ptp.print(filePath, {
-      printer: selectedPrinter
-    });
+    // 6. Print and await print command completion
+    const printOptions = { printer: selectedPrinter };
+    if (customPdfPath) {
+      printOptions.sumatraPdfPath = customPdfPath;
+    }
+
+    await ptp.print(filePath, printOptions);
 
     console.log('[PRINT LOG] Print finished.');
 
-    // 6. Delete temporary PDF only after successful printing
-    fs.unlink(filePath, (unlinkErr) => {
-      if (unlinkErr) {
-        console.error(`[PRINT ERROR] Failed to delete temporary print file ${filePath}:`, unlinkErr.message);
-      } else {
-        console.log(`[PRINT LOG] Successfully deleted temporary print file: ${filePath}`);
-      }
-    });
+    // 7. Delete temporary PDF synchronously only after successful spooling
+    try {
+      fs.unlinkSync(filePath);
+      console.log(`[PRINT LOG] Successfully deleted temporary print file: ${filePath}`);
+    } catch (unlinkErr) {
+      console.error(`[PRINT ERROR] Failed to delete temporary print file ${filePath}:`, unlinkErr.message);
+    }
 
     return res.json({ message: 'Invoice sent to printer successfully.' });
 
@@ -669,10 +724,14 @@ router.post('/invoices/print', upload.single('invoice'), async (req, res) => {
       console.error('[PRINT ERROR] Windows print command details:', err.cmd);
     }
 
-    // Clean up file if printing failed
-    fs.unlink(filePath, () => {});
+    // Clean up temporary file synchronously if printing failed
+    try {
+      fs.unlinkSync(filePath);
+      console.log(`[PRINT LOG] Cleaned up temporary print file after failure: ${filePath}`);
+    } catch (cleanupErr) {}
 
-    return res.status(500).json({
+    // Never return HTTP 500 for printer failures (return HTTP 400 with details)
+    return res.status(400).json({
       message: 'Silent printing failed',
       error: err.message || String(err),
       stack: err.stack,
