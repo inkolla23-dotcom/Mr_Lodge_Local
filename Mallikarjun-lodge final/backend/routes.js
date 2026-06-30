@@ -704,7 +704,30 @@ router.post('/invoices/print', upload.single('invoice'), async (req, res) => {
       printOptions.sumatraPdfPath = customPdfPath;
     }
 
-    await ptp.print(filePath, printOptions);
+    try {
+      await ptp.print(filePath, printOptions);
+    } catch (printErr) {
+      console.error('[PRINT LOG] pdf-to-printer failed, trying native PowerShell fallback...', printErr.message);
+      
+      const escapedFilePath = filePath.replace(/'/g, "''");
+      const escapedPrinter = selectedPrinter.replace(/'/g, "''");
+      
+      // Try to print via PowerShell using PrintTo verb (prints to selected printer)
+      const psCommand = `Start-Process -FilePath '${escapedFilePath}' -Verb PrintTo -ArgumentList '${escapedPrinter}' -PassThru | ForEach-Object { Start-Sleep -Seconds 5; $_ | Stop-Process -Force }`;
+      
+      await new Promise((resolve, reject) => {
+        const { exec } = require('child_process');
+        exec(`powershell.exe -Command "${psCommand.replace(/"/g, '\\"')}"`, (psErr, stdout, stderr) => {
+          if (psErr) {
+            console.error('[PRINT ERROR] PowerShell fallback print failed:', stderr || psErr.message);
+            reject(new Error(`Both pdf-to-printer and PowerShell native print failed. Printer error: ${printErr.message}. Fallback error: ${psErr.message}`));
+          } else {
+            console.log('[PRINT LOG] PowerShell fallback print spooled successfully.');
+            resolve();
+          }
+        });
+      });
+    }
 
     console.log('[PRINT LOG] Print finished.');
 
