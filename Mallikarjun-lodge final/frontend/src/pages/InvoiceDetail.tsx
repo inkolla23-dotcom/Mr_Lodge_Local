@@ -239,17 +239,12 @@ export default function InvoiceDetail({ invoiceNumber, onBackToList }: InvoiceDe
       }
 
       // 2. Open native Windows print dialog via iframe
-      // Clean up previous print iframe and revoke its blob URL to prevent memory leaks
-      const existingIframe = document.getElementById('mrlodge-print-iframe') as HTMLIFrameElement;
+      // Clean up previous print iframe to prevent memory leaks
+      const existingIframe = document.getElementById('mrlodge-print-iframe');
       if (existingIframe) {
-        const prevUrl = existingIframe.src;
-        if (prevUrl) {
-          URL.revokeObjectURL(prevUrl);
-        }
         document.body.removeChild(existingIframe);
       }
 
-      const blobURL = URL.createObjectURL(blob);
       const iframe = document.createElement('iframe');
       iframe.id = 'mrlodge-print-iframe';
       iframe.style.position = 'fixed';
@@ -258,19 +253,67 @@ export default function InvoiceDetail({ invoiceNumber, onBackToList }: InvoiceDe
       iframe.style.border = 'none';
       iframe.style.bottom = '-9999px';
       iframe.style.right = '-9999px';
-      iframe.src = blobURL;
 
       document.body.appendChild(iframe);
 
-      iframe.onload = () => {
+      const printTemplateHTML = document.getElementById('invoice-physical-print-template')?.innerHTML;
+      const doc = iframe.contentWindow?.document;
+      if (doc && printTemplateHTML) {
+        doc.open();
+        doc.write(`
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <title>Invoice - ${invoiceNumber}</title>
+              <style>
+                @page {
+                  size: A5 landscape;
+                  margin: 8mm 10mm;
+                }
+                html, body {
+                  margin: 0;
+                  padding: 0;
+                  height: auto;
+                  overflow: hidden;
+                  font-family: "Segoe UI", Arial, Calibri, sans-serif;
+                  color: #000000;
+                  background-color: #ffffff;
+                  -webkit-print-color-adjust: exact;
+                  print-color-adjust: exact;
+                }
+                #invoice-physical-print-template {
+                  width: 100% !important;
+                  padding: 0 !important;
+                  background: transparent !important;
+                  box-sizing: border-box !important;
+                }
+                table {
+                  width: 100%;
+                  border-collapse: collapse;
+                }
+                th, td {
+                  box-sizing: border-box;
+                }
+              </style>
+            </head>
+            <body>
+              <div id="invoice-physical-print-template">
+                ${printTemplateHTML}
+              </div>
+            </body>
+          </html>
+        `);
+        doc.close();
+      }
+
+      setTimeout(() => {
         try {
           iframe.contentWindow?.focus();
           iframe.contentWindow?.print();
         } catch (printErr: any) {
           console.error('[PRINT ERROR] Native browser print dialog failed:', printErr);
-          window.open(blobURL, '_blank');
         }
-      };
+      }, 500);
 
     } catch (err: any) {
       console.error('Print failed:', err);
