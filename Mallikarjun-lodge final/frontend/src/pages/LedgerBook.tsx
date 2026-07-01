@@ -152,8 +152,19 @@ export default function LedgerBook() {
       }
 
       // 2. Open native Windows print dialog via iframe
+      // Clean up previous print iframe and revoke its blob URL to prevent memory leaks
+      const existingIframe = document.getElementById('mrlodge-print-iframe') as HTMLIFrameElement;
+      if (existingIframe) {
+        const prevUrl = existingIframe.src;
+        if (prevUrl) {
+          URL.revokeObjectURL(prevUrl);
+        }
+        document.body.removeChild(existingIframe);
+      }
+
       const blobURL = URL.createObjectURL(blob);
       const iframe = document.createElement('iframe');
+      iframe.id = 'mrlodge-print-iframe';
       iframe.style.position = 'fixed';
       iframe.style.width = '0';
       iframe.style.height = '0';
@@ -172,11 +183,6 @@ export default function LedgerBook() {
           console.error('[PRINT ERROR] Native browser print dialog failed:', printErr);
           window.open(blobURL, '_blank');
         }
-
-        setTimeout(() => {
-          document.body.removeChild(iframe);
-          URL.revokeObjectURL(blobURL);
-        }, 5000);
       };
 
     } catch (err: any) {
