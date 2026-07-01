@@ -3,7 +3,6 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
-const ptp = require('pdf-to-printer');
 const fs = require('fs');
 const path = require('path');
 const { pool } = require('./db');
@@ -595,172 +594,35 @@ router.get('/bookings', async (req, res) => {
 
 // POST /invoices/print
 router.post('/invoices/print', upload.single('invoice'), async (req, res) => {
+  console.log('[PRINT LOG] PDF upload received');
   if (!req.file) {
-    console.error('[PRINT ERROR] No invoice PDF file uploaded.');
-    return res.status(400).json({ message: 'No invoice PDF file uploaded.' });
+    console.error('[PRINT ERROR] No PDF file uploaded.');
+    return res.status(400).json({ message: 'No PDF file uploaded.' });
   }
 
   const filePath = req.file.path;
-  console.log(`[PRINT LOG] PDF file path: ${filePath}`);
+  console.log(`[PRINT LOG] PDF path: ${filePath}`);
 
-  // 1. Verify file exists and is readable before printing
+  // 1. Verify file exists
   try {
     if (!fs.existsSync(filePath)) {
       throw new Error(`PDF file does not exist at path: ${filePath}`);
     }
-    fs.accessSync(filePath, fs.constants.R_OK);
-    console.log(`[PRINT LOG] PDF exists before printing and is readable.`);
+    console.log(`[PRINT LOG] File exists check: SUCCESS`);
   } catch (err) {
-    console.error(`[PRINT ERROR] PDF file verification failed:`, err);
-    try { fs.unlinkSync(filePath); } catch (e) {}
-    return res.status(400).json({ message: 'Uploaded PDF is not readable or does not exist.', error: err.message });
+    console.error(`[PRINT ERROR] File exists check failed:`, err.stack || err);
+    return res.status(400).json({ message: 'PDF file does not exist.', error: err.message, stack: err.stack });
   }
 
+  // 2. Clean up temporary PDF file synchronously
   try {
-    // 2. Enumerate installed printers with fallback protection
-    let printers = [];
-    try {
-      console.log('[PRINT LOG] Enumerating installed printers...');
-      printers = await ptp.getPrinters();
-      console.log('[PRINT LOG] Installed printers:', JSON.stringify(printers, null, 2));
-    } catch (e) {
-      console.error('[PRINT LOG] Printer enumeration failed (PowerShell execution restriction?):', e.message);
-    }
-
-    // 3. Detect Windows default printer with fallback protection
-    let defaultPrinter = null;
-    try {
-      defaultPrinter = await ptp.getDefaultPrinter();
-      console.log('[PRINT LOG] Detected Windows default printer:', defaultPrinter);
-    } catch (e) {
-      console.error('[PRINT LOG] Default printer detection failed:', e.message);
-    }
-
-    // 4. Select the printer using dynamic case-insensitive/partial matching
-    let selectedPrinter = null;
-    const hpPrinterName = "HP LaserJet Pro MFP M126a";
-    const hpAlternativeName = "Hewlett-Packard HP LaserJet Pro MFP M126a";
-
-    const foundPrinter = printers.find(p => {
-      const name = p.name || '';
-      const deviceId = p.deviceId || '';
-      return (
-        name.toLowerCase() === hpPrinterName.toLowerCase() ||
-        deviceId.toLowerCase() === hpPrinterName.toLowerCase() ||
-        name.toLowerCase() === hpAlternativeName.toLowerCase() ||
-        deviceId.toLowerCase() === hpAlternativeName.toLowerCase() ||
-        name.toLowerCase().includes("m126a") ||
-        deviceId.toLowerCase().includes("m126a")
-      );
-    });
-
-    if (foundPrinter) {
-      selectedPrinter = foundPrinter.name || foundPrinter.deviceId;
-      console.log(`[PRINT LOG] Target HP printer found: "${selectedPrinter}"`);
-    } else if (defaultPrinter) {
-      selectedPrinter = defaultPrinter.name || defaultPrinter.deviceId;
-      console.log(`[PRINT LOG] Target HP printer not found. Using default system printer: "${selectedPrinter}"`);
-    } else {
-      // Hardcoded default fallback if enumeration & default detection failed entirely
-      selectedPrinter = hpPrinterName;
-      console.log(`[PRINT LOG] No printer detection available. Falling back to default printer name: "${selectedPrinter}"`);
-    }
-
-    if (!selectedPrinter) {
-      throw new Error('No printer selected (no installed printers or default printer detected).');
-    }
-
-    console.log(`[PRINT LOG] Selected printer: ${selectedPrinter}`);
-
-    // 5. Resolve SumatraPDF executable path with robust fallback list
-    let sumatraPdfPath = path.join(__dirname, 'node_modules', 'pdf-to-printer', 'dist', 'SumatraPDF-3.4.6-32.exe');
-    if (!fs.existsSync(sumatraPdfPath)) {
-      sumatraPdfPath = path.resolve(__dirname, '..', 'node_modules', 'pdf-to-printer', 'dist', 'SumatraPDF-3.4.6-32.exe');
-    }
-
-    const systemPaths = [
-      'C:\\Program Files\\SumatraPDF\\SumatraPDF.exe',
-      'C:\\Program Files (x86)\\SumatraPDF\\SumatraPDF.exe'
-    ];
-    let customPdfPath = null;
-    if (fs.existsSync(sumatraPdfPath)) {
-      customPdfPath = sumatraPdfPath;
-      console.log(`[PRINT LOG] Using resolved bundled SumatraPDF at: ${customPdfPath}`);
-    } else {
-      for (const sp of systemPaths) {
-        if (fs.existsSync(sp)) {
-          customPdfPath = sp;
-          console.log(`[PRINT LOG] Using system installed SumatraPDF at: ${customPdfPath}`);
-          break;
-        }
-      }
-    }
-
-    console.log('[PRINT LOG] Print started.');
-
-    // 6. Print and await print command completion
-    const printOptions = { printer: selectedPrinter };
-    if (customPdfPath) {
-      printOptions.sumatraPdfPath = customPdfPath;
-    }
-
-    try {
-      await ptp.print(filePath, printOptions);
-    } catch (printErr) {
-      console.error('[PRINT LOG] pdf-to-printer failed, trying native PowerShell fallback...', printErr.message);
-      
-      const escapedFilePath = filePath.replace(/'/g, "''");
-      const escapedPrinter = selectedPrinter.replace(/'/g, "''");
-      
-      // Try to print via PowerShell using PrintTo verb (prints to selected printer)
-      const psCommand = `Start-Process -FilePath '${escapedFilePath}' -Verb PrintTo -ArgumentList '${escapedPrinter}' -PassThru | ForEach-Object { Start-Sleep -Seconds 5; $_ | Stop-Process -Force }`;
-      
-      await new Promise((resolve, reject) => {
-        const { exec } = require('child_process');
-        exec(`powershell.exe -Command "${psCommand.replace(/"/g, '\\"')}"`, (psErr, stdout, stderr) => {
-          if (psErr) {
-            console.error('[PRINT ERROR] PowerShell fallback print failed:', stderr || psErr.message);
-            reject(new Error(`Both pdf-to-printer and PowerShell native print failed. Printer error: ${printErr.message}. Fallback error: ${psErr.message}`));
-          } else {
-            console.log('[PRINT LOG] PowerShell fallback print spooled successfully.');
-            resolve();
-          }
-        });
-      });
-    }
-
-    console.log('[PRINT LOG] Print finished.');
-
-    // 7. Delete temporary PDF synchronously only after successful spooling
-    try {
-      fs.unlinkSync(filePath);
-      console.log(`[PRINT LOG] Successfully deleted temporary print file: ${filePath}`);
-    } catch (unlinkErr) {
-      console.error(`[PRINT ERROR] Failed to delete temporary print file ${filePath}:`, unlinkErr.message);
-    }
-
-    return res.json({ message: 'Invoice sent to printer successfully.' });
-
-  } catch (err) {
-    console.error('[PRINT ERROR] Print job execution failed. Exception stack trace:', err.stack || err);
-    if (err.cmd) {
-      console.error('[PRINT ERROR] Windows print command details:', err.cmd);
-    }
-
-    // Clean up temporary file synchronously if printing failed
-    try {
-      fs.unlinkSync(filePath);
-      console.log(`[PRINT LOG] Cleaned up temporary print file after failure: ${filePath}`);
-    } catch (cleanupErr) {}
-
-    // Never return HTTP 500 for printer failures (return HTTP 400 with details)
-    return res.status(400).json({
-      message: 'Silent printing failed',
-      error: err.message || String(err),
-      stack: err.stack,
-      cmd: err.cmd
-    });
+    fs.unlinkSync(filePath);
+    console.log(`[PRINT LOG] Successfully deleted temporary print file: ${filePath}`);
+  } catch (unlinkErr) {
+    console.error(`[PRINT ERROR] Failed to delete temporary print file:`, unlinkErr.stack || unlinkErr);
   }
+
+  return res.json({ success: true, message: 'PDF received and cleaned up. Print dialog handled on frontend.' });
 });
 
 router.get('/invoices', async (req, res) => {

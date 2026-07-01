@@ -138,18 +138,50 @@ export default function LedgerBook() {
       }
 
       const blob = pdf.output('blob');
+
+      // 1. Send print log payload to backend
       const formData = new FormData();
       formData.append('invoice', blob, `LedgerBook-${fromDate}-to-${toDate}.pdf`);
+      try {
+        await apiFetch('/invoices/print', {
+          method: 'POST',
+          body: formData,
+        });
+      } catch (logErr) {
+        console.error('[PRINT LOG] Backend print logging endpoint failed:', logErr);
+      }
 
-      await apiFetch('/invoices/print', {
-        method: 'POST',
-        body: formData,
-      });
+      // 2. Open native Windows print dialog via iframe
+      const blobURL = URL.createObjectURL(blob);
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.width = '0';
+      iframe.style.height = '0';
+      iframe.style.border = 'none';
+      iframe.style.bottom = '-9999px';
+      iframe.style.right = '-9999px';
+      iframe.src = blobURL;
 
-      alert('Ledger Book report sent to printer successfully.');
+      document.body.appendChild(iframe);
+
+      iframe.onload = () => {
+        try {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+        } catch (printErr: any) {
+          console.error('[PRINT ERROR] Native browser print dialog failed:', printErr);
+          window.open(blobURL, '_blank');
+        }
+
+        setTimeout(() => {
+          document.body.removeChild(iframe);
+          URL.revokeObjectURL(blobURL);
+        }, 5000);
+      };
+
     } catch (err: any) {
-      console.error('Silent print failed:', err);
-      alert(`Silent printing failed: ${err.message || err}`);
+      console.error('Print failed:', err);
+      alert(`Printing failed: ${err.message || err}`);
     } finally {
       setPrintLoading(false);
     }
