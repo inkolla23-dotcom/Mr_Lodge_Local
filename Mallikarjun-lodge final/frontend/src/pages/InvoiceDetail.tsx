@@ -845,102 +845,102 @@ export default function InvoiceDetail({ invoiceNumber, onBackToList }: InvoiceDe
 
       {/* Hidden Print Template - Used ONLY for physical automatic printing */}
       <div style={{ position: 'absolute', top: '-9999px', left: '-9999px', width: '800px', zIndex: -100, pointerEvents: 'none' }}>
-        <div id="invoice-physical-print-template" style={{ width: '800px', padding: '30px 40px', background: 'white', color: '#000000', fontFamily: 'system-ui, sans-serif', boxSizing: 'border-box' }}>
+        <div id="invoice-physical-print-template" style={{ width: '800px', padding: '40px 50px', background: 'white', color: '#000000', fontFamily: '"Segoe UI", Arial, Calibri, sans-serif', boxSizing: 'border-box' }}>
           {/* Header */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '3px solid #000000', paddingBottom: '12px', marginBottom: '16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ width: '56px', height: '56px', borderRadius: '50%', border: '2px solid #000000', padding: '2px', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '3px solid #000000', paddingBottom: '16px', marginBottom: '24px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+              <div style={{ width: '64px', height: '64px', borderRadius: '50%', border: '2.5px solid #000000', padding: '2px', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <img src="/logo.png" alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
               </div>
               <div>
-                <h2 style={{ fontSize: '20px', fontWeight: 700, margin: 0, color: '#000000' }}>Mallikarjun (Ravi) Lodge</h2>
-                <p style={{ fontSize: '11px', color: '#000000', fontWeight: 600, margin: '4px 0 0 0', lineHeight: 1.3 }}>4-8-495/1, Gowliguda, Ram Mandir Road, Near MGBS, Hyderabad - 500012</p>
-                <p style={{ fontSize: '11px', color: '#000000', fontWeight: 600, margin: '2px 0 0 0' }}>Phone: 6300 100 426 &nbsp;|&nbsp; GST: 36EJUPR1626A1Z2</p>
+                <h2 style={{ fontSize: '24px', fontWeight: 800, margin: 0, color: '#000000' }}>Mallikarjun (Ravi) Lodge</h2>
+                <p style={{ fontSize: '13px', color: '#000000', fontWeight: 600, margin: '6px 0 0 0', lineHeight: 1.4 }}>4-8-495/1, Gowliguda, Ram Mandir Road, Near MGBS, Hyderabad - 500012</p>
+                <p style={{ fontSize: '13px', color: '#000000', fontWeight: 600, margin: '3px 0 0 0' }}>Phone: 6300 100 426 &nbsp;|&nbsp; GST: 36EJUPR1626A1Z2</p>
               </div>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <h3 style={{ fontSize: '13px', fontWeight: 700, textTransform: 'uppercase', color: '#000000', letterSpacing: '0.05em', margin: 0 }}>Tax Invoice</h3>
-              <p style={{ fontSize: '12px', fontWeight: 700, color: '#000000', margin: '3px 0 0 0' }}>{invoiceNumber}</p>
-              <p style={{ fontSize: '10px', color: '#000000', fontWeight: 600, margin: '2px 0 0 0' }}>{invoice.created_at}</p>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'end', gap: '3px', marginTop: '6px' }}>
-                <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', padding: '2px 8px', border: '1.5px solid #000000', borderRadius: '4px', background: 'white', color: '#000000' }}>{invoice.status}</span>
+              <h3 style={{ fontSize: '15px', fontWeight: 800, textTransform: 'uppercase', color: '#000000', letterSpacing: '0.05em', margin: 0 }}>Tax Invoice</h3>
+              <p style={{ fontSize: '14px', fontWeight: 800, color: '#000000', margin: '4px 0 0 0' }}>{invoiceNumber}</p>
+              <p style={{ fontSize: '12px', color: '#000000', fontWeight: 600, margin: '3px 0 0 0' }}>{invoice.created_at}</p>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'end', gap: '3px', marginTop: '8px' }}>
+                <span style={{ fontSize: '12px', fontWeight: 800, textTransform: 'uppercase', padding: '3px 10px', border: '2px solid #000000', borderRadius: '4px', background: 'white', color: '#000000' }}>{invoice.status}</span>
               </div>
             </div>
           </div>
 
           {/* Details (Guest + Stay) */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', borderBottom: '2px solid #000000', paddingBottom: '12px', marginBottom: '16px', fontSize: '12px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px', borderBottom: '3px solid #000000', paddingBottom: '16px', marginBottom: '24px', fontSize: '13px' }}>
             <div>
-              <h4 style={{ fontWeight: 700, color: '#000000', textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '9px', margin: '0 0 4px 0' }}>Guest Details</h4>
-              <p style={{ fontWeight: 700, color: '#000000', fontSize: '13px', margin: 0 }}>{customer.name}</p>
-              <p style={{ fontWeight: 600, color: '#000000', margin: '2px 0 0 0' }}>{customer.mobile}</p>
-              <p style={{ color: '#000000', margin: '2px 0 0 0', fontWeight: 600 }}>Nationality: {customer.nationality}</p>
-              {customer.aadhaar && <p style={{ color: '#000000', margin: '2px 0 0 0', fontWeight: 600 }}>Aadhaar: {customer.aadhaar}</p>}
+              <h4 style={{ fontWeight: 800, color: '#000000', textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '11px', margin: '0 0 6px 0' }}>Guest Details</h4>
+              <p style={{ fontWeight: 800, color: '#000000', fontSize: '16px', margin: 0 }}>{customer.name}</p>
+              <p style={{ fontWeight: 700, color: '#000000', margin: '3px 0 0 0' }}>{customer.mobile}</p>
+              <p style={{ color: '#000000', margin: '3px 0 0 0', fontWeight: 700 }}>Nationality: {customer.nationality}</p>
+              {customer.aadhaar && <p style={{ color: '#000000', margin: '3px 0 0 0', fontWeight: 700 }}>Aadhaar: {customer.aadhaar}</p>}
               {booking.company_name && booking.company_name.trim() !== '' && (
-                <p style={{ color: '#000000', margin: '2px 0 0 0', fontWeight: 600 }}>Company Name: {booking.company_name}</p>
+                <p style={{ color: '#000000', margin: '3px 0 0 0', fontWeight: 700 }}>Company Name: {booking.company_name}</p>
               )}
               {booking.company_gst && booking.company_gst.trim() !== '' && (
-                <p style={{ color: '#000000', margin: '2px 0 0 0', fontWeight: 600 }}>GST Number: {booking.company_gst}</p>
+                <p style={{ color: '#000000', margin: '3px 0 0 0', fontWeight: 700 }}>GST Number: {booking.company_gst}</p>
               )}
             </div>
             <div style={{ textAlign: 'right' }}>
-              <h4 style={{ fontWeight: 700, color: '#000000', textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '9px', margin: '0 0 4px 0' }}>Stay Details</h4>
-              <p style={{ fontWeight: 700, color: '#000000', fontSize: '13px', margin: 0 }}>Room {booking.room_number}</p>
-              <p style={{ color: '#000000', fontWeight: 600, margin: '2px 0 0 0' }}>({booking.room_type} · {booking.ac_type})</p>
-              <p style={{ color: '#000000', fontWeight: 600, margin: '2px 0 0 0' }}>Check-in: {booking.check_in}</p>
-              <p style={{ color: '#000000', fontWeight: 600, margin: '2px 0 0 0' }}>Check-out: {booking.check_out || '--'}</p>
+              <h4 style={{ fontWeight: 800, color: '#000000', textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '11px', margin: '0 0 6px 0' }}>Stay Details</h4>
+              <p style={{ fontWeight: 800, color: '#000000', fontSize: '16px', margin: 0 }}>Room {booking.room_number}</p>
+              <p style={{ color: '#000000', fontWeight: 700, margin: '3px 0 0 0' }}>({booking.room_type} · {booking.ac_type})</p>
+              <p style={{ color: '#000000', fontWeight: 700, margin: '3px 0 0 0' }}>Check-in: {booking.check_in}</p>
+              <p style={{ color: '#000000', fontWeight: 700, margin: '3px 0 0 0' }}>Check-out: {booking.check_out || '--'}</p>
             </div>
           </div>
 
           {/* Table */}
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', border: '2px solid #000000', marginBottom: '0px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', border: '3px solid #000000', marginBottom: '0px' }}>
             <thead>
-              <tr style={{ background: '#ffffff', borderBottom: '2px solid #000000' }}>
-                <th style={{ padding: '8px 12px', fontWeight: 700, color: '#000000', textTransform: 'uppercase', borderRight: '2px solid #000000', borderBottom: '2px solid #000000' }}>Description</th>
-                <th style={{ padding: '8px 12px', fontWeight: 700, color: '#000000', textTransform: 'uppercase', textAlign: 'right', borderBottom: '2px solid #000000' }}>Amount (₹)</th>
+              <tr style={{ background: '#ffffff', borderBottom: '3px solid #000000' }}>
+                <th style={{ padding: '10px 14px', fontWeight: 800, color: '#000000', textTransform: 'uppercase', borderRight: '3px solid #000000', borderBottom: '3px solid #000000', textAlign: 'left' }}>Description</th>
+                <th style={{ padding: '10px 14px', fontWeight: 800, color: '#000000', textTransform: 'uppercase', textAlign: 'right', borderBottom: '3px solid #000000' }}>Amount (₹)</th>
               </tr>
             </thead>
             <tbody>
               {/* Item Rows */}
-              <tr style={{ borderBottom: '1px solid #000000' }}>
-                <td style={{ padding: '6px 12px', fontWeight: 600, color: '#000000', borderRight: '2px solid #000000', borderBottom: '1px solid #000000' }}>Room Charges ({booking.stay_duration})</td>
-                <td style={{ padding: '6px 12px', fontWeight: 600, color: '#000000', textAlign: 'right', borderBottom: '1px solid #000000' }}>₹{rc.toFixed(2)}</td>
+              <tr style={{ borderBottom: '2.5px solid #000000' }}>
+                <td style={{ padding: '8px 14px', fontWeight: 700, color: '#000000', borderRight: '3px solid #000000', borderBottom: '2.5px solid #000000' }}>Room Charges ({booking.stay_duration})</td>
+                <td style={{ padding: '8px 14px', fontWeight: 700, color: '#000000', textAlign: 'right', borderBottom: '2.5px solid #000000' }}>₹{rc.toFixed(2)}</td>
               </tr>
               {extraCharges.map((item, idx) => (
-                <tr key={idx} style={{ borderBottom: '1px solid #000000' }}>
-                  <td style={{ padding: '6px 12px', fontWeight: 600, color: '#000000', borderRight: '2px solid #000000', borderBottom: '1px solid #000000' }}>{item.description}</td>
-                  <td style={{ padding: '6px 12px', fontWeight: 600, color: '#000000', textAlign: 'right', borderBottom: '1px solid #000000' }}>₹{parseFloat(item.amount).toFixed(2)}</td>
+                <tr key={idx} style={{ borderBottom: '2.5px solid #000000' }}>
+                  <td style={{ padding: '8px 14px', fontWeight: 700, color: '#000000', borderRight: '3px solid #000000', borderBottom: '2.5px solid #000000' }}>{item.description}</td>
+                  <td style={{ padding: '8px 14px', fontWeight: 700, color: '#000000', textAlign: 'right', borderBottom: '2.5px solid #000000' }}>₹{parseFloat(item.amount).toFixed(2)}</td>
                 </tr>
               ))}
               {/* Summary Rows */}
-              <tr style={{ borderBottom: '1px solid #000000' }}>
-                <td style={{ padding: '6px 12px', fontWeight: 700, color: '#000000', borderRight: '2px solid #000000', borderBottom: '1px solid #000000' }}>Subtotal</td>
-                <td style={{ padding: '6px 12px', fontWeight: 600, color: '#000000', textAlign: 'right', borderBottom: '1px solid #000000' }}>₹{subtotal.toFixed(2)}</td>
+              <tr style={{ borderBottom: '2.5px solid #000000' }}>
+                <td style={{ padding: '8px 14px', fontWeight: 800, color: '#000000', borderRight: '3px solid #000000', borderBottom: '2.5px solid #000000' }}>Subtotal</td>
+                <td style={{ padding: '8px 14px', fontWeight: 700, color: '#000000', textAlign: 'right', borderBottom: '2.5px solid #000000' }}>₹{subtotal.toFixed(2)}</td>
               </tr>
-              <tr style={{ borderBottom: '1px solid #000000' }}>
-                <td style={{ padding: '6px 12px', fontWeight: 700, color: '#000000', borderRight: '2px solid #000000', borderBottom: '1px solid #000000' }}>GST ({gstRate}%)</td>
-                <td style={{ padding: '6px 12px', fontWeight: 600, color: '#000000', textAlign: 'right', borderBottom: '1px solid #000000' }}>₹{gstVal.toFixed(2)}</td>
+              <tr style={{ borderBottom: '2.5px solid #000000' }}>
+                <td style={{ padding: '8px 14px', fontWeight: 800, color: '#000000', borderRight: '3px solid #000000', borderBottom: '2.5px solid #000000' }}>GST ({gstRate}%)</td>
+                <td style={{ padding: '8px 14px', fontWeight: 700, color: '#000000', textAlign: 'right', borderBottom: '2.5px solid #000000' }}>₹{gstVal.toFixed(2)}</td>
               </tr>
-              <tr style={{ borderBottom: '1px solid #000000', fontWeight: 700 }}>
-                <td style={{ padding: '6px 12px', fontWeight: 700, color: '#000000', borderRight: '2px solid #000000', borderBottom: '1px solid #000000' }}>Grand Total</td>
-                <td style={{ padding: '6px 12px', fontWeight: 700, color: '#000000', textAlign: 'right', borderBottom: '1px solid #000000' }}>₹{grandTotal.toFixed(2)}</td>
+              <tr style={{ borderBottom: '2.5px solid #000000', fontWeight: 800 }}>
+                <td style={{ padding: '8px 14px', fontWeight: 800, color: '#000000', borderRight: '3px solid #000000', borderBottom: '2.5px solid #000000' }}>Grand Total</td>
+                <td style={{ padding: '8px 14px', fontWeight: 800, color: '#000000', textAlign: 'right', borderBottom: '2.5px solid #000000' }}>₹{grandTotal.toFixed(2)}</td>
               </tr>
-              <tr style={{ borderBottom: '1px solid #000000' }}>
-                <td style={{ padding: '6px 12px', fontWeight: 700, color: '#000000', borderRight: '2px solid #000000', borderBottom: '1px solid #000000' }}>Total Paid</td>
-                <td style={{ padding: '6px 12px', fontWeight: 600, color: '#000000', textAlign: 'right', borderBottom: '1px solid #000000' }}>₹{alreadyPaid.toFixed(2)}</td>
+              <tr style={{ borderBottom: '2.5px solid #000000' }}>
+                <td style={{ padding: '8px 14px', fontWeight: 800, color: '#000000', borderRight: '3px solid #000000', borderBottom: '2.5px solid #000000' }}>Total Paid</td>
+                <td style={{ padding: '8px 14px', fontWeight: 700, color: '#000000', textAlign: 'right', borderBottom: '2.5px solid #000000' }}>₹{alreadyPaid.toFixed(2)}</td>
               </tr>
-              <tr style={{ fontWeight: 700 }}>
-                <td style={{ padding: '6px 12px', fontWeight: 700, color: '#000000', borderRight: '2px solid #000000' }}>Pending Amount</td>
-                <td style={{ padding: '6px 12px', fontWeight: 700, color: '#000000', textAlign: 'right' }}>₹{pendingAmount.toFixed(2)}</td>
+              <tr style={{ fontWeight: 800 }}>
+                <td style={{ padding: '8px 14px', fontWeight: 800, color: '#000000', borderRight: '3px solid #000000' }}>Pending Amount</td>
+                <td style={{ padding: '8px 14px', fontWeight: 800, color: '#000000', textAlign: 'right' }}>₹{pendingAmount.toFixed(2)}</td>
               </tr>
             </tbody>
           </table>
 
           {/* Remarks Section */}
           {booking.remarks && booking.remarks.trim() !== '' && (
-            <div style={{ marginTop: '16px', fontSize: '11px', textAlign: 'left' }}>
-              <div style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '9px', marginBottom: '4px' }}>Remarks</div>
-              <div style={{ borderTop: '1px solid #000000', borderBottom: '1px solid #000000', padding: '6px 0', fontWeight: 600 }}>
+            <div style={{ marginTop: '24px', fontSize: '13px', textAlign: 'left' }}>
+              <div style={{ fontWeight: 800, textTransform: 'uppercase', fontSize: '11px', marginBottom: '6px' }}>Remarks</div>
+              <div style={{ borderTop: '2px solid #000000', borderBottom: '2px solid #000000', padding: '8px 0', fontWeight: 700 }}>
                 {booking.remarks}
               </div>
             </div>
